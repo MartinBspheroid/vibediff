@@ -10,7 +10,7 @@ import { useRefs } from '../hooks/useRefs'
 import { useReviewedFiles } from '../hooks/useReviewedFiles'
 import TargetSelector from './TargetSelector'
 import CopyReviewButton from './CopyReviewButton'
-import { IconList, IconTree, IconCheckCircle, IconDanger } from './icons'
+import { IconList, IconTree, IconCheckCircle, IconDanger, IconKeyboard } from './icons'
 import { useWebSocketUpdates } from '../contexts/WebSocketContext'
 import { getButtonClassName } from '../utils/buttonStyles'
 import FileList from './FileList'
@@ -19,6 +19,7 @@ import CommentDialog from './CommentDialog'
 import FullFileModal from './FullFileModal'
 import DarkModeToggle from './DarkModeToggle'
 import ConnectionStatus from './ConnectionStatus'
+import KeyboardShortcutsDialog from './KeyboardShortcutsDialog'
 
 interface DiffViewerProps {
   className?: string
@@ -36,6 +37,7 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
   const [wrapLines, setWrapLines] = useState<boolean>(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const [target, setTarget] = useState(() => localStorage.getItem('diffTarget') ?? '')
 
   const refs = useRefs()
@@ -156,8 +158,22 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
         return
       }
 
+      // "?" opens the keyboard-shortcuts help (the dialog handles Escape itself).
+      // Match both how real browsers report it (key "?") and the Shift+"/" form
+      // some environments report instead.
+      if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+        e.preventDefault()
+        setShowShortcuts(true)
+        return
+      }
+
+      // While the help overlay is open, freeze background navigation.
+      if (showShortcuts) {
+        return
+      }
+
       // "/" jumps to the file filter (common search shortcut).
-      if (e.key === '/') {
+      if (e.key === '/' && !e.shiftKey) {
         e.preventDefault()
         fileFilterRef.current?.focus()
         return
@@ -182,7 +198,7 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
 
     document.addEventListener('keydown', handleKeyDown)
     return () => { document.removeEventListener('keydown', handleKeyDown); }
-  }, [data, selectedFile])
+  }, [data, selectedFile, showShortcuts])
 
   const toggleFileCollapse = (filePath: string): void => {
     setCollapsedFiles(prev => {
@@ -316,6 +332,17 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
 
             <CopyReviewButton comments={comments} />
 
+            <button
+              type="button"
+              onClick={() => { setShowShortcuts(true); }}
+              aria-label="Keyboard shortcuts"
+              aria-keyshortcuts="?"
+              title="Keyboard shortcuts (?)"
+              className={getButtonClassName(false, 'single')}
+            >
+              <IconKeyboard aria-hidden="true" className="w-4 h-4" />
+            </button>
+
             <DarkModeToggle />
             </div>
           </div>
@@ -375,6 +402,12 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
                 type="text"
                 value={fileFilter}
                 onChange={(e) => { setFileFilter(e.target.value); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setFileFilter('')
+                    e.currentTarget.blur()
+                  }
+                }}
                 placeholder="Filter files… (press /)"
                 aria-label="Filter files by path"
                 className="w-full px-2 py-1 text-sm rounded-md border border-[#e1e4e8] dark:border-[#30363d]
@@ -548,6 +581,11 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
           })
         }}
         wrapLines={wrapLines}
+      />
+
+      <KeyboardShortcutsDialog
+        isOpen={showShortcuts}
+        onClose={() => { setShowShortcuts(false); }}
       />
       </div>
     </div>

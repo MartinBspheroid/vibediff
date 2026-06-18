@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 import type { DiffLine as DiffLineType } from '../types/diff'
 import { getLanguageFromFilename, highlightCode } from '../utils/prism'
+import { wrapRanges, type Range } from '../utils/wordDiff'
 
 interface DiffLineProps {
   line: DiffLineType
@@ -15,6 +16,10 @@ interface DiffLineProps {
   isInCommentRange?: boolean
   filename: string
   wrapLines?: boolean
+  // Character ranges within this line that changed vs. its paired line, used to
+  // highlight the exact words that differ (intra-line diff). Must be a stable
+  // reference (computed once per file) so React.memo can skip unaffected lines.
+  intralineRanges?: Range[]
 }
 
 // Configuration for line types
@@ -62,7 +67,8 @@ const DiffLine = React.memo(({
   isInSelection = false,
   isInCommentRange = false,
   filename,
-  wrapLines = false
+  wrapLines = false,
+  intralineRanges
 }: DiffLineProps): React.ReactElement => {
   const config = LINE_TYPE_CONFIG[line.type]
   const isAddition = line.type === 'add' || line.type === 'added'
@@ -79,8 +85,14 @@ const DiffLine = React.memo(({
       return ''
     }
     // Always highlight to preserve formatting
-    return highlightCode(line.content, language)
-  }, [line.content, filename])
+    const html = highlightCode(line.content, language)
+    // Overlay intra-line word highlights (if any) on top of the syntax markup.
+    if (intralineRanges && intralineRanges.length > 0) {
+      const cls = isDeletion ? 'diff-word-del' : 'diff-word-add'
+      return wrapRanges(html, intralineRanges, cls)
+    }
+    return html
+  }, [line.content, filename, intralineRanges, isDeletion])
 
   if (viewMode === 'unified') {
     return (

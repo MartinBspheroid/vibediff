@@ -80,3 +80,20 @@ test('comment dialog has no serious accessibility violations', async ({ page, ap
   const serious = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
   expect(serious, JSON.stringify(serious.map((v) => ({ id: v.id, nodes: v.nodes.length })), null, 2)).toEqual([])
 })
+
+test('keyboard-shortcuts dialog has no serious accessibility violations', async ({ page, appURL }) => {
+  await page.goto(appURL)
+  await expect(page.getByText('hello.txt').first()).toBeVisible()
+  await expect(page.getByText('Updating...')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Keyboard shortcuts' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+
+  const results = await new AxeBuilder({ page })
+    .include('[role="dialog"]')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze()
+
+  const serious = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+  expect(serious, JSON.stringify(serious.map((v) => ({ id: v.id, nodes: v.nodes.length })), null, 2)).toEqual([])
+})

@@ -43,6 +43,7 @@ export default function PrismThemeManager(): null {
 
     return () => {
       observer.disconnect()
+      document.getElementById('prism-theme')?.remove()
     }
   }, [])
 

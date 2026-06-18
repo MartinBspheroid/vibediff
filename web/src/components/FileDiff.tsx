@@ -3,6 +3,7 @@ import type { FileDiff as FileDiffType, ViewMode, DiffLine as DiffLineType, Comm
 import DiffLine from './DiffLine'
 import CommentDisplay from './CommentDisplay'
 import { useRangeSelection } from '../hooks/useRangeSelection'
+import { intralineRanges } from '../utils/wordDiff'
 import { IconChevronRight, IconChevronDown } from './icons'
 import StatusBadge from './StatusBadge'
 
@@ -58,6 +59,13 @@ export default function FileDiff({
   const commentRangeLines = useMemo(() =>
     getCommentRangeLines ? getCommentRangeLines(file.path, lineOrder) : new Set<number>()
   , [getCommentRangeLines, file.path, lineOrder])
+
+  // Word-level changed ranges, one map (line index → ranges) per hunk. Computed
+  // once per file so the per-line arrays stay referentially stable for memo.
+  const wordRanges = useMemo(
+    () => file.hunks.map(hunk => intralineRanges(hunk.lines)),
+    [file.hunks]
+  )
 
   const handleSelect = useCallback((line: number, lineEnd: number) => {
     onAddComment(line, lineEnd)
@@ -176,6 +184,7 @@ export default function FileDiff({
                             isInCommentRange={commentRangeLines.has(lineNumber)}
                             filename={file.path}
                             wrapLines={wrapLines}
+                            intralineRanges={wordRanges[hunkIndex].get(lineIndex)}
                           />
                           {comments.length > 0 && (
                             <tr>
@@ -227,6 +236,7 @@ export default function FileDiff({
                             isInCommentRange={commentRangeLines.has(lineNumber)}
                             filename={file.path}
                             wrapLines={wrapLines}
+                            intralineRanges={wordRanges[hunkIndex].get(index)}
                           />
                         ),
                         comments,

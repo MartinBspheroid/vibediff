@@ -28,6 +28,41 @@ test('shows staged files in a repo with no commits yet', async ({ page, noCommit
   await expect(page.getByText("Couldn't load the diff")).toHaveCount(0)
 })
 
+test('opens the keyboard-shortcuts help with "?" and the header button', async ({ page, appURL }) => {
+  await page.goto(appURL)
+  await expect(page.getByText('hello.txt').first()).toBeVisible()
+
+  // "?" opens the help overlay.
+  await page.keyboard.press('Shift+/')
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('Keyboard shortcuts')).toBeVisible()
+  await expect(dialog.getByText('Next file')).toBeVisible()
+
+  // Escape closes it.
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+
+  // The header button opens it too.
+  await page.getByRole('button', { name: 'Keyboard shortcuts' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.getByRole('button', { name: 'Close keyboard shortcuts' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
+})
+
+test('highlights only the changed words within a modified line', async ({ page, appURL }) => {
+  await page.goto(appURL)
+  await expect(page.getByText('hello.txt').first()).toBeVisible()
+
+  // The fixture changes "line two" -> "line two CHANGED": only the appended
+  // word should carry an intra-line highlight, not the whole line.
+  const mark = page.locator('.diff-word-add').first()
+  await expect(mark).toBeVisible()
+  await expect(mark).toContainText('CHANGED')
+  // The unchanged prefix "line two" must NOT be inside the highlight.
+  await expect(mark).not.toContainText('line')
+})
+
 test('renders the diff for the changed file', async ({ page, appURL }) => {
   await page.goto(appURL)
   await expect(page.getByText('hello.txt').first()).toBeVisible()
@@ -99,6 +134,19 @@ test('focuses the file filter with the "/" shortcut', async ({ page, appURL }) =
   await expect(filter).toBeFocused()
   // The "/" focuses rather than typing into the field.
   await expect(filter).toHaveValue('')
+})
+
+test('clears the file filter with Escape', async ({ page, appURL }) => {
+  await page.goto(appURL)
+  await expect(page.getByText('hello.txt').first()).toBeVisible()
+
+  const filter = page.getByLabel('Filter files by path')
+  await filter.fill('nomatch-xyz')
+  await expect(page.getByText(/No files match/)).toBeVisible()
+
+  await filter.press('Escape')
+  await expect(filter).toHaveValue('')
+  await expect(page.getByText('hello.txt').first()).toBeVisible()
 })
 
 test('filters the file list by path', async ({ page, appURL }) => {

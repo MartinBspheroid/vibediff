@@ -107,6 +107,25 @@ code[class*="language-"] {
   background-color: #3d1e20;
 }
 
+/* Intra-line (word-level) change highlights, layered on top of the line bg. */
+.diff-word-add {
+  background-color: #abf2bc;
+  border-radius: 0.2em;
+}
+
+.dark .diff-word-add {
+  background-color: rgba(46, 160, 67, 0.4);
+}
+
+.diff-word-del {
+  background-color: #fdb8c0;
+  border-radius: 0.2em;
+}
+
+.dark .diff-word-del {
+  background-color: rgba(248, 81, 73, 0.4);
+}
+
 /* Code line backgrounds */
 .line-code-addition {
   background-color: #e6ffed;
