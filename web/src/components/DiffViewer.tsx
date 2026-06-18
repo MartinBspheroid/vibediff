@@ -12,7 +12,10 @@ import TargetSelector from './TargetSelector'
 import CopyReviewButton from './CopyReviewButton'
 import { IconList, IconTree, IconCheckCircle, IconDanger, IconKeyboard } from './icons'
 import { useWebSocketUpdates } from '../contexts/WebSocketContext'
-import { getButtonClassName } from '../utils/buttonStyles'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import FileList from './FileList'
 import FileDiff from './FileDiff'
 import CommentDialog from './CommentDialog'
@@ -23,6 +26,16 @@ import KeyboardShortcutsDialog from './KeyboardShortcutsDialog'
 
 interface DiffViewerProps {
   className?: string
+}
+
+// Position classes that visually join shadcn Buttons into a single segmented
+// control (shared borders, only the outer corners rounded).
+function segItem(index: number, total: number): string {
+  const base = 'focus-visible:z-10'
+  if (total <= 1) return base
+  if (index === 0) return `${base} rounded-r-none`
+  if (index === total - 1) return `${base} rounded-l-none -ml-px`
+  return `${base} rounded-none -ml-px`
 }
 
 export default function DiffViewer({ className = '' }: DiffViewerProps): React.ReactElement {
@@ -264,84 +277,70 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
             {/* Diff Type Selector */}
             <div className="flex">
               {(['all', 'staged', 'unstaged'] as DiffType[]).map((type, index) => (
-                <button
+                <Button
                   key={type}
+                  variant={diffType === type ? 'default' : 'outline'}
                   onClick={() => { setDiffType(type); }}
-                  className={(() => {
-                    const isActive = diffType === type
-                    if (index === 0) return getButtonClassName(isActive, 'left')
-                    if (index === 2) return getButtonClassName(isActive, 'right')
-                    return getButtonClassName(isActive, 'middle')
-                  })()}
+                  className={segItem(index, 3)}
                 >
                   {type === 'all' ? 'All Changes' : type.charAt(0).toUpperCase() + type.slice(1)}
-                </button>
+                </Button>
               ))}
             </div>
 
             {/* View Mode Toggle */}
             <div className="flex">
-              <button
-                onClick={() => { setViewMode('unified'); }}
-                className={getButtonClassName(viewMode === 'unified', 'left')}
-              >
+              <Button variant={viewMode === 'unified' ? 'default' : 'outline'} onClick={() => { setViewMode('unified'); }} className={segItem(0, 2)}>
                 Unified
-              </button>
-              <button
-                onClick={() => { setViewMode('split'); }}
-                className={getButtonClassName(viewMode === 'split', 'right')}
-              >
+              </Button>
+              <Button variant={viewMode === 'split' ? 'default' : 'outline'} onClick={() => { setViewMode('split'); }} className={segItem(1, 2)}>
                 Split
-              </button>
+              </Button>
             </div>
 
             {/* Display Mode Toggle */}
             <div className="flex">
-              <button
-                onClick={() => { setDisplayMode('single'); }}
-                className={getButtonClassName(displayMode === 'single', 'left')}
-              >
+              <Button variant={displayMode === 'single' ? 'default' : 'outline'} onClick={() => { setDisplayMode('single'); }} className={segItem(0, 2)}>
                 Single File
-              </button>
-              <button
-                onClick={() => { setDisplayMode('all'); }}
-                className={getButtonClassName(displayMode === 'all', 'right')}
-              >
+              </Button>
+              <Button variant={displayMode === 'all' ? 'default' : 'outline'} onClick={() => { setDisplayMode('all'); }} className={segItem(1, 2)}>
                 All Files
-              </button>
+              </Button>
             </div>
 
             {/* Collapse All Button */}
-            <button
+            <Button
+              variant="outline"
               onClick={toggleAllCollapse}
-              className={`${getButtonClassName(false, 'single')} disabled:opacity-50 disabled:cursor-not-allowed`}
               disabled={displayMode === 'single'}
               title={displayMode === 'single' ? 'Available in All Files mode' : ''}
             >
               {allVisibleCollapsed ? 'Expand All' : 'Collapse All'}
-            </button>
+            </Button>
 
             {/* Wrap Lines Toggle */}
-            <button
-              onClick={() => { setWrapLines(!wrapLines); }}
-              className={getButtonClassName(wrapLines, 'single')}
-              title="Toggle line wrapping"
-            >
+            <Button variant={wrapLines ? 'default' : 'outline'} onClick={() => { setWrapLines(!wrapLines); }} title="Toggle line wrapping">
               Wrap Lines
-            </button>
+            </Button>
 
             <CopyReviewButton comments={comments} />
 
-            <button
-              type="button"
-              onClick={() => { setShowShortcuts(true); }}
-              aria-label="Keyboard shortcuts"
-              aria-keyshortcuts="?"
-              title="Keyboard shortcuts (?)"
-              className={getButtonClassName(false, 'single')}
-            >
-              <IconKeyboard aria-hidden="true" className="w-4 h-4" />
-            </button>
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => { setShowShortcuts(true); }}
+                    aria-label="Keyboard shortcuts"
+                    aria-keyshortcuts="?"
+                  >
+                    <IconKeyboard aria-hidden="true" className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Keyboard shortcuts (?)</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
 
             <DarkModeToggle />
             </div>
@@ -370,17 +369,17 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
                 </span>
               )}
             </h3>
-            <button
+            <Button
+              variant="ghost"
               onClick={() => { setFileViewMode(fileViewMode === 'list' ? 'tree' : 'list'); }}
-              className="inline-flex items-center justify-center p-1 rounded text-[#586069] dark:text-[#8b949e] hover:text-[#24292e] dark:hover:text-[#c9d1d9] hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer bg-transparent border-none
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]"
+              className="h-auto w-auto p-1 text-muted-foreground hover:text-foreground"
               aria-label={fileViewMode === 'list' ? 'Switch to tree view' : 'Switch to list view'}
               title={fileViewMode === 'list' ? 'Switch to tree view' : 'Switch to list view'}
             >
               {fileViewMode === 'list'
                 ? <IconTree aria-hidden="true" className="w-4 h-4" />
                 : <IconList aria-hidden="true" className="w-4 h-4" />}
-            </button>
+            </Button>
           </div>
 
           {allFiles.length > 0 && (
@@ -397,7 +396,7 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
           {/* File filter */}
           {allFiles.length > 0 && (
             <div className="mb-3 flex flex-col gap-2">
-              <input
+              <Input
                 ref={fileFilterRef}
                 type="text"
                 value={fileFilter}
@@ -410,26 +409,19 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
                 }}
                 placeholder="Filter files… (press /)"
                 aria-label="Filter files by path"
-                className="w-full px-2 py-1 text-sm rounded-md border border-[#e1e4e8] dark:border-[#30363d]
-                  bg-white dark:bg-[#0d1117] text-[#24292e] dark:text-[#c9d1d9]
-                  placeholder-[#6a737d] dark:placeholder-[#8b949e]
-                  focus:outline-none focus:border-[#0366d6] dark:focus:border-[#1f6feb]
-                  focus:shadow-[0_0_0_3px_rgba(3,102,214,0.1)] dark:focus:shadow-[0_0_0_3px_rgba(31,111,235,0.1)]"
               />
-              <select
-                value={statusFilter}
-                onChange={(e) => { setStatusFilter(e.target.value as StatusFilter); }}
-                aria-label="Filter files by status"
-                className="w-full px-2 py-1 text-sm rounded-md border border-[#e1e4e8] dark:border-[#30363d]
-                  bg-white dark:bg-[#0d1117] text-[#24292e] dark:text-[#c9d1d9] cursor-pointer
-                  focus:outline-none focus:border-[#0366d6] dark:focus:border-[#1f6feb]"
-              >
-                <option value="all">All statuses</option>
-                <option value="added">Added</option>
-                <option value="modified">Modified</option>
-                <option value="deleted">Deleted</option>
-                <option value="renamed">Renamed</option>
-              </select>
+              <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as StatusFilter); }}>
+                <SelectTrigger aria-label="Filter files by status" className="w-full bg-background border-input">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="added">Added</SelectItem>
+                  <SelectItem value="modified">Modified</SelectItem>
+                  <SelectItem value="deleted">Deleted</SelectItem>
+                  <SelectItem value="renamed">Renamed</SelectItem>
+                </SelectContent>
+              </Select>
               {isFiltering && (
                 <p className="text-xs text-[#586069] dark:text-[#8b949e]">
                   {filteredFiles.length} of {allFiles.length} files

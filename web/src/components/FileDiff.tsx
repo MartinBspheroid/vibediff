@@ -1,4 +1,6 @@
-import React, { useMemo, useCallback } from 'react'
+import React, { useMemo, useCallback, useId } from 'react'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import type { FileDiff as FileDiffType, ViewMode, DiffLine as DiffLineType, Comment } from '../types/diff'
 import DiffLine from './DiffLine'
 import CommentDisplay from './CommentDisplay'
@@ -76,6 +78,8 @@ export default function FileDiff({
     onSelect: handleSelect
   })
 
+  const reviewedId = useId()
+
   return (
     <div id={`file-${file.path.replace(/\//g, '-')}`} className="border border-[#d1d5da] dark:border-[#30363d] rounded-md mb-4">
       {/* File Header */}
@@ -84,28 +88,27 @@ export default function FileDiff({
         onClick={onToggleCollapse}
       >
         <div className="flex items-center gap-1 flex-1 min-w-0">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
             aria-expanded={!collapsed}
             aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${file.path}`}
             onClick={(e) => { e.stopPropagation(); onToggleCollapse(); }}
-            className="inline-flex items-center text-[#586069] dark:text-[#8b949e] bg-transparent border-none p-0.5 -ml-0.5 rounded cursor-pointer
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]"
+            className="h-auto w-auto p-0.5 -ml-0.5 text-muted-foreground"
           >
             {collapsed
               ? <IconChevronRight aria-hidden="true" className="w-3.5 h-3.5" />
               : <IconChevronDown aria-hidden="true" className="w-3.5 h-3.5" />}
-          </button>
+          </Button>
 
           <div className="flex-1 min-w-0">
             <span className={`inline-flex items-center gap-2 ${isReviewed ? 'opacity-60' : ''}`}>
               <StatusBadge status={file.status} />
-              <span className="text-sm font-semibold text-[#24292e] dark:text-[#c9d1d9] font-[-apple-system,BlinkMacSystemFont,'Segoe_UI',Helvetica,Arial,sans-serif]">
+              <span className="text-sm font-semibold text-foreground font-[-apple-system,BlinkMacSystemFont,'Segoe_UI',Helvetica,Arial,sans-serif]">
                 {file.path}
               </span>
             </span>
             {file.status === 'renamed' && file.oldPath && (
-              <span className="text-xs text-gray-500 dark:text-gray-400 block">
+              <span className="text-xs text-muted-foreground block">
                 renamed from {file.oldPath}
               </span>
             )}
@@ -118,28 +121,27 @@ export default function FileDiff({
           </div>
 
           {onToggleReviewed && (
-            <label
-              className="flex items-center gap-1.5 text-xs cursor-pointer select-none text-[#586069] dark:text-[#8b949e]"
+            <div
+              className="flex items-center gap-1.5 text-xs select-none text-muted-foreground"
               onClick={(e) => { e.stopPropagation(); }}
             >
-              <input
-                type="checkbox"
+              <Checkbox
+                id={reviewedId}
                 checked={isReviewed}
-                onChange={(e) => { e.stopPropagation(); onToggleReviewed(); }}
-                className="cursor-pointer accent-[#2ea44f] w-3.5 h-3.5
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb] focus-visible:ring-offset-1"
+                onCheckedChange={() => { onToggleReviewed(); }}
               />
-              Viewed
-            </label>
+              <label htmlFor={reviewedId} className="cursor-pointer">Viewed</label>
+            </div>
           )}
 
           {!hideViewFullFile && (
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={(e) => { e.stopPropagation(); onViewFullFile(); }}
-              className="px-3 py-[3px] text-xs font-medium bg-[#fafbfc] dark:bg-[#21262d] text-[#24292e] dark:text-[#c9d1d9] border border-[rgba(27,31,35,.15)] dark:border-[#30363d] rounded-md hover:bg-[#f3f4f6] dark:hover:bg-[#30363d] transition-colors cursor-pointer"
             >
               View full file
-            </button>
+            </Button>
           )}
         </div>
         </div>

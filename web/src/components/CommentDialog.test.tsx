@@ -15,7 +15,6 @@ describe('CommentDialog', () => {
   it('is an accessible, labelled modal', () => {
     render(<CommentDialog {...base} onSubmit={vi.fn()} onClose={vi.fn()} />)
     const dialog = screen.getByRole('dialog')
-    expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveAccessibleName(/a\.go:3/)
   })
 

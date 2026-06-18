@@ -14,6 +14,14 @@ import (
 	"github.com/malvex/vibediff/internal/review"
 )
 
+// absInt returns the absolute value of an int.
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
 // validateComment rejects malformed or unsafe review comments.
 func validateComment(c *review.Comment) error {
 	if strings.TrimSpace(c.Content) == "" {
@@ -22,11 +30,11 @@ func validateComment(c *review.Comment) error {
 	if len(c.Content) > maxCommentContent {
 		return fmt.Errorf("content too long")
 	}
-	if c.Line < 1 {
-		return fmt.Errorf("line must be >= 1")
-	}
-	if c.LineEnd != 0 && c.LineEnd < 1 {
-		return fmt.Errorf("lineEnd must be >= 1")
+	// The client encodes the diff side in the sign of the line number: positive
+	// for added/context (new-side) lines, negative for deleted (old-side) lines.
+	// Either is valid; only 0 ("no line") is rejected.
+	if c.Line == 0 {
+		return fmt.Errorf("line must be non-zero")
 	}
 	if _, err := git.ValidateRepoPath(c.File); err != nil {
 		return fmt.Errorf("invalid file path: %w", err)
@@ -158,12 +166,14 @@ func (h *Handler) AddComment(w http.ResponseWriter, r *http.Request) {
 
 	h.reviewStore.AddComment(&comment)
 
-	// Print immediately in text format
+	// Print immediately in text format. Line numbers are stored signed (negative
+	// = deleted side); show their magnitude so the terminal reads like a location.
 	if h.format == "text" {
+		line := absInt(comment.Line)
 		if comment.LineEnd != 0 && comment.LineEnd != comment.Line {
-			fmt.Printf("\n%s:%d-%d\n", comment.File, comment.Line, comment.LineEnd)
+			fmt.Printf("\n%s:%d-%d\n", comment.File, line, absInt(comment.LineEnd))
 		} else {
-			fmt.Printf("\n%s:%d\n", comment.File, comment.Line)
+			fmt.Printf("\n%s:%d\n", comment.File, line)
 		}
 		fmt.Printf("%s\n", comment.Content)
 	}

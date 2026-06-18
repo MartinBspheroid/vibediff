@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Comment } from '../types/diff'
+import { Button } from '@/components/ui/button'
 import { IconTrash, IconPencil } from './icons'
 
 interface CommentDisplayProps {
@@ -83,27 +84,25 @@ export default function CommentDisplay({ comments, onDelete, onUpdate }: Comment
                   {new Date(comment.createdAt).toLocaleString()}
                 </div>
                 {onUpdate && !isEditing && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
                     onClick={() => { startEdit(comment); }}
                     aria-label={`Edit comment on ${rangeLabel(comment)}`}
-                    className="text-[rgba(27,31,35,.55)] dark:text-[rgba(139,148,158,.65)] hover:text-[#0366d6] dark:hover:text-[#58a6ff] p-0 w-5 h-5 flex items-center justify-center cursor-pointer border-none bg-transparent rounded
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb] focus-visible:text-[#0366d6] dark:focus-visible:text-[#58a6ff]"
+                    className="h-5 w-5 p-0 text-[rgba(27,31,35,.55)] dark:text-[rgba(139,148,158,.65)] hover:text-[#0366d6] dark:hover:text-[#58a6ff] hover:bg-transparent"
                     title="Edit comment"
                   >
                     <IconPencil aria-hidden="true" className="w-4 h-4" />
-                  </button>
+                  </Button>
                 )}
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
                   onClick={() => { handleDelete(comment.id); }}
                   aria-label={`Delete comment on ${rangeLabel(comment)}`}
-                  className="text-[rgba(27,31,35,.55)] dark:text-[rgba(139,148,158,.65)] hover:text-[#d73a49] dark:hover:text-[#f85149] p-0 w-5 h-5 flex items-center justify-center cursor-pointer border-none bg-transparent rounded
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d73a49] dark:focus-visible:ring-[#f85149] focus-visible:text-[#d73a49] dark:focus-visible:text-[#f85149]"
+                  className="h-5 w-5 p-0 text-[rgba(27,31,35,.55)] dark:text-[rgba(139,148,158,.65)] hover:text-[#d73a49] dark:hover:text-[#f85149] hover:bg-transparent"
                   title="Delete comment"
                 >
                   <IconTrash aria-hidden="true" className="w-4 h-4" />
-                </button>
+                </Button>
               </div>
             </div>
             {deleteErrorId === comment.id && (
@@ -127,23 +126,17 @@ export default function CommentDisplay({ comments, onDelete, onUpdate }: Comment
                   <p role="alert" className="text-xs text-[#cf222e] dark:text-[#f85149]">{editError}</p>
                 )}
                 <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={cancelEdit}
-                    className="px-3 py-[3px] text-xs font-medium bg-[#fafbfc] dark:bg-[#21262d] text-[#24292e] dark:text-[#c9d1d9] border border-[rgba(27,31,35,.15)] dark:border-[#30363d] rounded-md hover:bg-[#f3f4f6] dark:hover:bg-[#30363d] transition-colors cursor-pointer
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]"
-                  >
+                  <Button variant="outline" size="sm" onClick={cancelEdit}>
                     Cancel
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
+                    size="sm"
                     onClick={() => { saveEdit(comment.id); }}
                     disabled={draft.trim() === '' || saving}
-                    className="px-3 py-[3px] text-xs font-medium text-white bg-[#2ea44f] hover:bg-[#2c974b] disabled:bg-[#94d3a2] dark:bg-[#238636] dark:hover:bg-[#2ea043] rounded-md transition-colors disabled:cursor-not-allowed cursor-pointer
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2ea44f] focus-visible:ring-offset-1"
+                    className="text-white bg-[#2ea44f] hover:bg-[#2c974b] dark:bg-[#238636] dark:hover:bg-[#2ea043] focus-visible:ring-[#2ea44f]"
                   >
                     {saving ? 'Saving…' : 'Save'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (

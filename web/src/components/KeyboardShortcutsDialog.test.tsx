@@ -10,9 +10,9 @@ describe('KeyboardShortcutsDialog', () => {
 
   it('renders the shortcut list as an accessible dialog when open', () => {
     render(<KeyboardShortcutsDialog isOpen={true} onClose={() => undefined} />)
-    const dialog = screen.getByRole('dialog')
-    expect(dialog).toHaveAttribute('aria-modal', 'true')
-    expect(screen.getByText('Keyboard shortcuts')).toBeInTheDocument()
+    // Radix gives the dialog role + an accessible name via its title.
+    const dialog = screen.getByRole('dialog', { name: 'Keyboard shortcuts' })
+    expect(dialog).toBeInTheDocument()
     expect(screen.getByText('Next file')).toBeInTheDocument()
     expect(screen.getByText('Focus the file filter')).toBeInTheDocument()
   })

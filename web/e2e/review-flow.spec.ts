@@ -82,26 +82,47 @@ test('switches diff type to Staged (no staged changes in fixture)', async ({ pag
   await expect(page.getByText(/working tree is clean/i)).toBeVisible()
 })
 
+test('target selector lists grouped branches and tags', async ({ page, appURL }) => {
+  await page.goto(appURL)
+  await expect(page.getByText('hello.txt').first()).toBeVisible()
+
+  await page.getByLabel('Compare against').click()
+  // The shadcn Select dropdown groups refs under labelled sections.
+  const listbox = page.getByRole('listbox')
+  await expect(listbox.getByText('Branches')).toBeVisible()
+  await expect(listbox.getByText('Tags')).toBeVisible()
+  await expect(page.getByRole('option', { name: 'Working tree (default)' })).toBeVisible()
+  await expect(page.getByRole('option', { name: 'v0' })).toBeVisible()
+
+  // Escape closes the dropdown without changing the selection.
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
+  await expect(page.getByLabel('Compare against')).toContainText('Working tree (default)')
+})
+
 test('compares against a selected tag via the target selector', async ({ page, appURL }) => {
   await page.goto(appURL)
   await expect(page.getByText('hello.txt').first()).toBeVisible()
 
   // Selecting the "v0" tag diffs the working tree against that tag.
-  await page.getByLabel('Compare against').selectOption('v0')
+  await page.getByLabel('Compare against').click()
+  await page.getByRole('option', { name: 'v0' }).click()
 
   // The diff still shows hello.txt (working tree differs from the tagged commit),
   // and no error state appears.
+  await expect(page.getByLabel('Compare against')).toContainText('v0')
   await expect(page.getByText('hello.txt').first()).toBeVisible()
   await expect(page.getByText("Couldn't load the diff")).toHaveCount(0)
 })
 
 test('remembers the selected comparison target across reloads', async ({ page, appURL }) => {
   await page.goto(appURL)
-  await page.getByLabel('Compare against').selectOption('v0')
-  await expect(page.getByLabel('Compare against')).toHaveValue('v0')
+  await page.getByLabel('Compare against').click()
+  await page.getByRole('option', { name: 'v0' }).click()
+  await expect(page.getByLabel('Compare against')).toContainText('v0')
 
   await page.reload()
-  await expect(page.getByLabel('Compare against')).toHaveValue('v0')
+  await expect(page.getByLabel('Compare against')).toContainText('v0')
 })
 
 test('marks a file as viewed, collapsing it, and persists across reload', async ({ page, appURL }) => {
@@ -171,9 +192,11 @@ test('shows file status badges and filters by status', async ({ page, appURL }) 
   await expect(fileCard.getByText('Modified')).toBeVisible()
 
   // Filtering by "Added" excludes it; switching to "Modified" brings it back.
-  await page.getByLabel('Filter files by status').selectOption('added')
+  await page.getByLabel('Filter files by status').click()
+  await page.getByRole('option', { name: 'Added' }).click()
   await expect(page.getByText('No files match the current filters.')).toBeVisible()
-  await page.getByLabel('Filter files by status').selectOption('modified')
+  await page.getByLabel('Filter files by status').click()
+  await page.getByRole('option', { name: 'Modified' }).click()
   await expect(page.getByText('hello.txt').first()).toBeVisible()
 })
 
@@ -401,16 +424,17 @@ test('copies the review to the clipboard as text', async ({ page, context, appUR
   await page.getByRole('button', { name: 'Comment', exact: true }).click()
   await expect(page.getByText('please rename this')).toBeVisible()
 
-  // Copy as text.
+  // Copy as text — feedback is a toast.
   const copyText = page.getByRole('button', { name: /copy review comments as text/i })
   await copyText.click()
-  await expect(copyText).toHaveText('Copied!')
+  await expect(page.getByText('Review copied as text')).toBeVisible()
   const asText = await page.evaluate(() => navigator.clipboard.readText())
   expect(asText).toContain('please rename this')
   expect(asText).toMatch(/hello\.txt:\d/)
 
   // Copy as JSON.
   await page.getByRole('button', { name: /copy review comments as json/i }).click()
+  await expect(page.getByText('Review copied as JSON')).toBeVisible()
   const asJson = await page.evaluate(() => navigator.clipboard.readText())
   const parsed = JSON.parse(asJson) as { content: string }[]
   expect(parsed.some((c) => c.content === 'please rename this')).toBeTruthy()

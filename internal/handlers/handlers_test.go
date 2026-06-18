@@ -98,7 +98,6 @@ func TestAddComment_Validation(t *testing.T) {
 	cases := map[string]string{
 		"empty content":  `{"file":"a.go","line":1,"content":"   "}`,
 		"zero line":      `{"file":"a.go","line":0,"content":"x"}`,
-		"negative line":  `{"file":"a.go","line":-5,"content":"x"}`,
 		"traversal file": `{"file":"../../etc/passwd","line":1,"content":"x"}`,
 		"unknown field":  `{"file":"a.go","line":1,"content":"x","bogus":true}`,
 	}
@@ -112,6 +111,19 @@ func TestAddComment_Validation(t *testing.T) {
 				t.Errorf("status = %d, want 400 for %s", rec.Code, name)
 			}
 		})
+	}
+}
+
+// A negative line number is how the client marks a comment on a deleted
+// (old-side) line; it must be accepted, not rejected.
+func TestAddComment_NegativeLineAccepted(t *testing.T) {
+	h := newTestHandler()
+	body := `{"file":"a.go","line":-5,"lineEnd":-5,"content":"on a deleted line"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/review/comment", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.AddComment(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 for a comment on a deleted line", rec.Code)
 	}
 }
 

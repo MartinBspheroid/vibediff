@@ -91,6 +91,16 @@ export default tseslint.config([
     },
   },
 
+  // shadcn/ui primitives intentionally co-export style variants (buttonVariants,
+  // badgeVariants) next to their components; exempt them from the react-refresh
+  // single-export heuristic.
+  {
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+
   // Relax rules for test files
   {
     files: ['**/*.test.{ts,tsx}'],

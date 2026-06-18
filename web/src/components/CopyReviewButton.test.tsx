@@ -5,6 +5,16 @@ import type { Comment } from '../types/diff'
 
 const writeText = vi.fn().mockResolvedValue(undefined)
 
+// Feedback is shown via sonner toasts; assert the toast calls rather than DOM.
+const toastSuccess = vi.fn()
+const toastError = vi.fn()
+vi.mock('sonner', () => ({
+  toast: {
+    success: (msg: string) => { toastSuccess(msg) },
+    error: (msg: string) => { toastError(msg) },
+  },
+}))
+
 beforeEach(() => {
   vi.clearAllMocks()
   writeText.mockResolvedValue(undefined)
@@ -29,12 +39,12 @@ describe('CopyReviewButton', () => {
     expect(screen.getByRole('button', { name: /copy review comments as text/i })).toHaveTextContent('Copy review (2)')
   })
 
-  it('copies formatted text and confirms', async () => {
+  it('copies formatted text and toasts success', async () => {
     render(<CopyReviewButton comments={[makeComment({ content: 'rename it' })]} />)
     fireEvent.click(screen.getByRole('button', { name: /as text/i }))
 
     await waitFor(() => { expect(writeText).toHaveBeenCalledWith('a.go:3\nrename it') })
-    await waitFor(() => { expect(screen.getByRole('button', { name: /as text/i })).toHaveTextContent('Copied!') })
+    await waitFor(() => { expect(toastSuccess).toHaveBeenCalledWith('Review copied as text') })
   })
 
   it('copies JSON when the JSON button is used', async () => {
@@ -44,13 +54,14 @@ describe('CopyReviewButton', () => {
     await waitFor(() => { expect(writeText).toHaveBeenCalled() })
     const arg = writeText.mock.calls[0][0] as string
     expect(JSON.parse(arg)).toHaveLength(1)
+    await waitFor(() => { expect(toastSuccess).toHaveBeenCalledWith('Review copied as JSON') })
   })
 
-  it('shows a failure message when both clipboard paths fail', async () => {
+  it('toasts an error when both clipboard paths fail', async () => {
     writeText.mockRejectedValueOnce(new Error('denied'))
     vi.spyOn(document, 'execCommand').mockReturnValue(false)
     render(<CopyReviewButton comments={[makeComment()]} />)
     fireEvent.click(screen.getByRole('button', { name: /as text/i }))
-    await waitFor(() => { expect(screen.getByRole('button', { name: /as text/i })).toHaveTextContent('Copy failed') })
+    await waitFor(() => { expect(toastError).toHaveBeenCalledWith('Could not copy to clipboard') })
   })
 })

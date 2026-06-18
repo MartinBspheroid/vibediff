@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import TargetSelector from './TargetSelector'
 import type { Ref } from '../types/diff'
 
@@ -9,33 +9,28 @@ const refs: Ref[] = [
   { name: 'v1.0.0', type: 'tag', current: false },
 ]
 
+// The dropdown is a Radix Select; its trigger carries role="combobox" and shows
+// the label for the current value. Opening it and choosing options is covered by
+// the Playwright e2e (Radix's portal + pointer interaction needs a real browser).
 describe('TargetSelector', () => {
-  it('renders the default option plus branches and tags', () => {
+  it('shows the default label when no target is selected', () => {
     render(<TargetSelector refs={refs} value="" onChange={vi.fn()} />)
-    const select = screen.getByRole('combobox', { name: 'Compare against' })
-    expect(select).toHaveValue('')
-    expect(screen.getByRole('option', { name: 'Working tree (default)' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'main (current)' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'feature/x' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'v1.0.0' })).toBeInTheDocument()
+    const trigger = screen.getByRole('combobox', { name: 'Compare against' })
+    expect(trigger).toHaveTextContent('Working tree (default)')
   })
 
-  it('calls onChange with the selected ref name', () => {
-    const onChange = vi.fn()
-    render(<TargetSelector refs={refs} value="" onChange={onChange} />)
-    fireEvent.change(screen.getByRole('combobox', { name: 'Compare against' }), {
-      target: { value: 'feature/x' },
-    })
-    expect(onChange).toHaveBeenCalledWith('feature/x')
+  it('reflects a selected branch (marking the current one)', () => {
+    render(<TargetSelector refs={refs} value="main" onChange={vi.fn()} />)
+    expect(screen.getByRole('combobox', { name: 'Compare against' })).toHaveTextContent('main (current)')
   })
 
-  it('reflects the current value', () => {
+  it('reflects a selected tag', () => {
     render(<TargetSelector refs={refs} value="v1.0.0" onChange={vi.fn()} />)
-    expect(screen.getByRole('combobox', { name: 'Compare against' })).toHaveValue('v1.0.0')
+    expect(screen.getByRole('combobox', { name: 'Compare against' })).toHaveTextContent('v1.0.0')
   })
 
-  it('shows only the default option when there are no refs', () => {
+  it('renders the trigger even when there are no refs', () => {
     render(<TargetSelector refs={[]} value="" onChange={vi.fn()} />)
-    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(screen.getByRole('combobox', { name: 'Compare against' })).toHaveTextContent('Working tree (default)')
   })
 })
