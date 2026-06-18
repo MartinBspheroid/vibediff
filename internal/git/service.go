@@ -2,17 +2,31 @@ package git
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
-type Service struct{
+// defaultCmdTimeout bounds how long any single git invocation may run, so a
+// hung or pathologically-slow command (e.g. full-context diff of a huge file)
+// surfaces as an error instead of blocking the request indefinitely.
+const defaultCmdTimeout = 30 * time.Second
+
+type Service struct {
 	diffTarget string
+	cmdTimeout time.Duration
 }
 
 func NewService() *Service {
-	return &Service{}
+	return &Service{cmdTimeout: defaultCmdTimeout}
+}
+
+// SetCommandTimeout overrides the per-command timeout (primarily for tests).
+func (s *Service) SetCommandTimeout(d time.Duration) {
+	s.cmdTimeout = d
 }
 
 // SetDiffTarget sets the target for git diff (e.g., "main", "HEAD~1", commit hash)
@@ -20,18 +34,32 @@ func (s *Service) SetDiffTarget(target string) {
 	s.diffTarget = target
 }
 
-// GetDiff retrieves the git diff with optional context lines (default: 3)
+// GetDiff retrieves the git diff using the service's configured target (set via
+// the CLI) with optional context lines (default: 3).
 func (s *Service) GetDiff(diffType DiffType, contextLines ...int) (*DiffResult, error) {
+	return s.GetDiffForTarget("", diffType, contextLines...)
+}
+
+// GetDiffForTarget retrieves the diff against an explicit, per-request target
+// (e.g. a branch or tag selected in the UI). An empty target falls back to the
+// service's configured target, then to the staged/unstaged/all behavior. The
+// caller is responsible for validating that target is a known, safe ref.
+func (s *Service) GetDiffForTarget(target string, diffType DiffType, contextLines ...int) (*DiffResult, error) {
 	context := 3
 	if len(contextLines) > 0 {
 		context = contextLines[0]
 	}
 
+	effectiveTarget := s.diffTarget
+	if target != "" {
+		effectiveTarget = target
+	}
+
 	var args []string
 
-	// If a diff target is specified, use it instead of the default behavior
-	if s.diffTarget != "" {
-		args = []string{"diff", s.diffTarget, "--no-color", "--no-ext-diff"}
+	// If a diff target is specified, use it instead of the default behavior.
+	if effectiveTarget != "" {
+		args = []string{"diff", effectiveTarget, "--no-color", "--no-ext-diff"}
 	} else {
 		switch diffType {
 		case DiffTypeStaged:
@@ -39,9 +67,19 @@ func (s *Service) GetDiff(diffType DiffType, contextLines ...int) (*DiffResult, 
 		case DiffTypeUnstaged:
 			args = []string{"diff", "--no-color", "--no-ext-diff"}
 		default:
-			args = []string{"diff", "HEAD", "--no-color", "--no-ext-diff"}
+			if s.hasCommits() {
+				args = []string{"diff", "HEAD", "--no-color", "--no-ext-diff"}
+			} else {
+				// No commits yet: `git diff HEAD` would fail. Compare the index
+				// against the (implicit) empty tree so staged files still show.
+				args = []string{"diff", "--cached", "--no-color", "--no-ext-diff"}
+			}
 		}
 	}
+
+	// Force the standard a/ b/ path prefixes regardless of the user's git
+	// config (diff.noprefix / diff.mnemonicPrefix would otherwise break parsing).
+	args = append(args, "--src-prefix=a/", "--dst-prefix=b/")
 
 	// Add context parameter
 	if context >= 0 {
@@ -94,14 +132,91 @@ func (s *Service) GetStatus() ([]string, error) {
 	return files, nil
 }
 
+// GetRefs lists local branches and tags that can be selected as diff targets.
+func (s *Service) GetRefs() ([]Ref, error) {
+	current, _ := s.runGitCommand("rev-parse", "--abbrev-ref", "HEAD")
+	current = strings.TrimSpace(current)
+
+	output, err := s.runGitCommand("for-each-ref", "--format=%(refname:short)%09%(refname)", "refs/heads", "refs/tags")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list refs: %w", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	refs := make([]Ref, 0, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		short, full := parts[0], parts[1]
+		typ := "branch"
+		if strings.HasPrefix(full, "refs/tags/") {
+			typ = "tag"
+		}
+		refs = append(refs, Ref{
+			Name:    short,
+			Type:    typ,
+			Current: typ == "branch" && short == current,
+		})
+	}
+	return refs, nil
+}
+
+// hasCommits reports whether the repository has at least one commit (a HEAD).
+func (s *Service) hasCommits() bool {
+	_, err := s.runGitCommand("rev-parse", "--verify", "HEAD")
+	return err == nil
+}
+
+// IsGitRepo reports whether the current working directory is inside a git
+// working tree.
+func (s *Service) IsGitRepo() bool {
+	out, err := s.runGitCommand("rev-parse", "--is-inside-work-tree")
+	return err == nil && strings.TrimSpace(out) == "true"
+}
+
+// IsValidRef reports whether name matches one of the refs from GetRefs. Callers
+// use this to validate a user-supplied diff target before passing it to git,
+// preventing option-injection via crafted target strings.
+func (s *Service) IsValidRef(name string) bool {
+	refs, err := s.GetRefs()
+	if err != nil {
+		return false
+	}
+	for _, r := range refs {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) runGitCommand(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	timeout := s.cmdTimeout
+	if timeout <= 0 {
+		timeout = defaultCmdTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// core.quotePath=false makes git emit literal UTF-8 paths instead of
+	// octal-escaped, double-quoted ones, so the parser handles non-ASCII
+	// filenames (and paths with special characters) correctly.
+	fullArgs := append([]string{"-c", "core.quotePath=false"}, args...)
+	cmd := exec.CommandContext(ctx, "git", fullArgs...)
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("git command timed out after %s", timeout)
+	}
 	if err != nil {
 		return "", fmt.Errorf("git command failed: %s", stderr.String())
 	}
@@ -119,38 +234,50 @@ func (s *Service) parseDiff(diffOutput string) ([]FileDiff, error) {
 }
 
 func (s *Service) GetFileContent(filePath string) (string, error) {
-	// First check if file exists in working directory
-	content, err := s.runGitCommand("show", fmt.Sprintf("HEAD:%s", filePath))
+	safe, err := safeRepoPath(filePath)
 	if err != nil {
-		// If not in HEAD, try to read from filesystem
-		output, err := exec.Command("cat", filePath).Output()
-		if err != nil {
-			return "", fmt.Errorf("failed to read file: %w", err)
-		}
-		return string(output), nil
+		return "", fmt.Errorf("invalid file path: %w", err)
 	}
-	return content, nil
+	// Prefer the committed version (HEAD); fall back to the working tree.
+	content, err := s.runGitCommand("show", "HEAD:"+safe)
+	if err == nil {
+		return content, nil
+	}
+	output, readErr := os.ReadFile(safe)
+	if readErr != nil {
+		return "", fmt.Errorf("failed to read file: %w", readErr)
+	}
+	return string(output), nil
 }
 
-// GetFileDiff retrieves diff for a specific file with optional context lines
+// GetFileDiff retrieves diff for a specific file with optional context lines.
 func (s *Service) GetFileDiff(filename string, diffType DiffType, contextLines ...int) (*FileDiff, error) {
+	return s.GetFileDiffForTarget("", filename, diffType, contextLines...)
+}
+
+// GetFileDiffForTarget retrieves the diff for a single file against an explicit
+// per-request target (e.g. a branch/tag selected in the UI). An empty target
+// falls back to the configured/default behavior.
+func (s *Service) GetFileDiffForTarget(target string, filename string, diffType DiffType, contextLines ...int) (*FileDiff, error) {
 	context := 3
 	if len(contextLines) > 0 {
 		context = contextLines[0]
 	}
 
-	// Check if it's an untracked file
-	untrackedFiles, err := s.getUntrackedFiles()
-	if err == nil {
-		for _, untracked := range untrackedFiles {
-			if untracked == filename {
-				return s.getUntrackedFileDiff(filename, context)
+	// Untracked files only exist in the working tree (no target comparison).
+	if target == "" {
+		untrackedFiles, err := s.getUntrackedFiles()
+		if err == nil {
+			for _, untracked := range untrackedFiles {
+				if untracked == filename {
+					return s.getUntrackedFileDiff(filename, context)
+				}
 			}
 		}
 	}
 
 	// Otherwise get from regular diff
-	diff, err := s.GetDiff(diffType, contextLines...)
+	diff, err := s.GetDiffForTarget(target, diffType, contextLines...)
 	if err != nil {
 		return nil, err
 	}
@@ -164,9 +291,24 @@ func (s *Service) GetFileDiff(filename string, diffType DiffType, contextLines .
 	return nil, fmt.Errorf("file not found in diff: %s", filename)
 }
 
-// GetFileDiffWithFullContext is a convenience method for getting full file context
+// GetFileDiffWithFullContext is a convenience method for getting full file context.
 func (s *Service) GetFileDiffWithFullContext(filename string, diffType DiffType) (*FileDiff, error) {
-	return s.GetFileDiff(filename, diffType, 999999)
+	return s.GetFileDiffForTarget("", filename, diffType, 999999)
+}
+
+// GetFileDiffWithFullContextForTarget returns full-context file diff against a target.
+func (s *Service) GetFileDiffWithFullContextForTarget(target string, filename string, diffType DiffType) (*FileDiff, error) {
+	return s.GetFileDiffForTarget(target, filename, diffType, 999999)
+}
+
+// isBinaryContent reports whether data looks binary, using git's heuristic:
+// a NUL byte within the first 8000 bytes.
+func isBinaryContent(data []byte) bool {
+	n := len(data)
+	if n > 8000 {
+		n = 8000
+	}
+	return bytes.IndexByte(data[:n], 0) >= 0
 }
 
 // getUntrackedFiles returns list of untracked files from git status
@@ -193,16 +335,37 @@ func (s *Service) getUntrackedFiles() ([]string, error) {
 
 // getUntrackedFileDiff creates a diff for an untracked file
 func (s *Service) getUntrackedFileDiff(filepath string, contextLines int) (*FileDiff, error) {
-	// Read file content
-	content, err := exec.Command("cat", filepath).Output()
+	// Read file content (validated to stay within the repository root).
+	safe, err := safeRepoPath(filepath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read untracked file %s: %w", filepath, err)
+		return nil, fmt.Errorf("invalid untracked file path: %w", err)
+	}
+	content, err := os.ReadFile(safe)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read untracked file %s: %w", safe, err)
 	}
 
-	lines := strings.Split(string(content), "\n")
-	
+	// Don't render binary files as text (they'd show as garbage rows); flag
+	// them like git does for tracked binaries.
+	if isBinaryContent(content) {
+		return &FileDiff{
+			Path:     filepath,
+			Status:   FileStatusAdded,
+			IsBinary: true,
+			Hunks:    []Hunk{},
+		}, nil
+	}
+
+	// Split into lines, dropping the single trailing newline so a file ending
+	// in "\n" doesn't produce a spurious extra blank line (and a wrong count).
+	text := strings.TrimSuffix(string(content), "\n")
+	var lines []string
+	if text != "" {
+		lines = strings.Split(text, "\n")
+	}
+
 	// Create diff lines showing all lines as added
-	var diffLines []Line
+	diffLines := make([]Line, 0, len(lines))
 	for i, line := range lines {
 		lineNum := i + 1
 		diffLines = append(diffLines, Line{
@@ -212,13 +375,10 @@ func (s *Service) getUntrackedFileDiff(filepath string, contextLines int) (*File
 		})
 	}
 
-	return &FileDiff{
-		Path:      filepath,
-		Status:    FileStatusAdded,
-		Additions: len(lines),
-		Deletions: 0,
-		IsBinary:  false,
-		Hunks: []Hunk{
+	// An empty new file has no content hunk (matches git's behavior).
+	hunks := []Hunk{}
+	if len(lines) > 0 {
+		hunks = []Hunk{
 			{
 				OldStart: 0,
 				OldLines: 0,
@@ -227,6 +387,15 @@ func (s *Service) getUntrackedFileDiff(filepath string, contextLines int) (*File
 				Header:   fmt.Sprintf("@@ -0,0 +1,%d @@", len(lines)),
 				Lines:    diffLines,
 			},
-		},
+		}
+	}
+
+	return &FileDiff{
+		Path:      filepath,
+		Status:    FileStatusAdded,
+		Additions: len(lines),
+		Deletions: 0,
+		IsBinary:  false,
+		Hunks:     hunks,
 	}, nil
 }

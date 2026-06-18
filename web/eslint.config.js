@@ -9,8 +9,9 @@ import { dirname } from 'path'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export default tseslint.config([
-  // Ignore patterns
-  { ignores: ['dist'] },
+  // Ignore patterns. e2e/ is Playwright-driven and type-checked by Playwright's
+  // own runner, not part of the app tsconfig projects.
+  { ignores: ['dist', 'e2e', 'playwright.config.ts'] },
 
   // Base config for all TypeScript/JavaScript files
   {

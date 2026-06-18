@@ -1,8 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import type { DiffType, ViewMode, FileDiff as FileDiffType } from '../types/diff'
+import { filterFiles, filterByStatus, type StatusFilter } from '../utils/filterFiles'
+import { countCommentsByFile } from '../utils/commentCounts'
+import { sumDiffStats } from '../utils/diffStats'
 import { useDiff } from '../hooks/useDiff'
 import { useComments } from '../hooks/useComments'
 import { useLocalStorage } from '../hooks/useLocalStorage'
+import { useRefs } from '../hooks/useRefs'
+import { useReviewedFiles } from '../hooks/useReviewedFiles'
+import TargetSelector from './TargetSelector'
+import CopyReviewButton from './CopyReviewButton'
+import { IconList, IconTree, IconCheckCircle, IconDanger } from './icons'
 import { useWebSocketUpdates } from '../contexts/WebSocketContext'
 import { getButtonClassName } from '../utils/buttonStyles'
 import FileList from './FileList'
@@ -10,6 +18,7 @@ import FileDiff from './FileDiff'
 import CommentDialog from './CommentDialog'
 import FullFileModal from './FullFileModal'
 import DarkModeToggle from './DarkModeToggle'
+import ConnectionStatus from './ConnectionStatus'
 
 interface DiffViewerProps {
   className?: string
@@ -27,10 +36,42 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
   const [wrapLines, setWrapLines] = useState<boolean>(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [target, setTarget] = useState(() => localStorage.getItem('diffTarget') ?? '')
 
-  const { data, loading, error, refetch } = useDiff(diffType)
-  const { addComment, deleteComment, getCommentsForLine, getCommentRangeLines } = useComments()
-  const { lastUpdate } = useWebSocketUpdates()
+  const refs = useRefs()
+  const { reviewedFiles, toggleReviewed, isReviewed } = useReviewedFiles()
+  const { data, loading, error, refetch } = useDiff(diffType, target)
+  const { comments, error: commentsError, addComment, updateComment, deleteComment, getCommentsForLine, getCommentRangeLines } = useComments()
+  const { lastUpdate, connected } = useWebSocketUpdates()
+
+  // Marking a file viewed collapses it (and un-viewing expands it), like GitHub.
+  const handleToggleReviewed = (path: string): void => {
+    const willReview = !reviewedFiles.has(path)
+    toggleReviewed(path)
+    setCollapsedFiles((prev) => {
+      const next = new Set(prev)
+      if (willReview) {
+        next.add(path)
+      } else {
+        next.delete(path)
+      }
+      return next
+    })
+  }
+
+  const reviewedCount = data ? data.files.filter((f) => reviewedFiles.has(f.path)).length : 0
+
+  const [fileFilter, setFileFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const allFiles = useMemo(() => data?.files ?? [], [data])
+  const filteredFiles = useMemo(
+    () => filterByStatus(filterFiles(allFiles, fileFilter), statusFilter),
+    [allFiles, fileFilter, statusFilter]
+  )
+  const isFiltering = fileFilter.trim() !== '' || statusFilter !== 'all'
+  const commentCounts = useMemo(() => countCommentsByFile(comments), [comments])
+  const diffStats = useMemo(() => sumDiffStats(allFiles), [allFiles])
+  const allVisibleCollapsed = filteredFiles.length > 0 && filteredFiles.every((f) => collapsedFiles.has(f.path))
 
   // Refetch when WebSocket triggers an update
   useEffect(() => {
@@ -81,6 +122,15 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
   useLocalStorage('sidebarView', fileViewMode)
   useLocalStorage('collapsedFolders', collapsedFolders)
   useLocalStorage('wrapLines', wrapLines)
+  useLocalStorage('diffTarget', target)
+
+  // Self-heal a persisted target that no longer exists (e.g. branch deleted),
+  // so we don't keep requesting an invalid ref (which the server rejects).
+  useEffect(() => {
+    if (target !== '' && refs.length > 0 && !refs.some((r) => r.name === target)) {
+      setTarget('')
+    }
+  }, [refs, target])
 
   // Auto-select first file when data loads
   useEffect(() => {
@@ -138,14 +188,18 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
     })
   }
 
+  // Collapse/expand the currently visible (filtered) files, leaving the
+  // collapse state of files hidden by the filter untouched.
   const toggleAllCollapse = (): void => {
-    if (collapsedFiles.size === data?.files.length) {
-      // All collapsed, expand all
-      setCollapsedFiles(new Set())
-    } else {
-      // Some or none collapsed, collapse all
-      setCollapsedFiles(new Set(data?.files.map(f => f.path) ?? []))
-    }
+    setCollapsedFiles(prev => {
+      const next = new Set(prev)
+      if (allVisibleCollapsed) {
+        filteredFiles.forEach(f => next.delete(f.path))
+      } else {
+        filteredFiles.forEach(f => next.add(f.path))
+      }
+      return next
+    })
   }
 
   if (loading) {
@@ -175,10 +229,14 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-semibold">VibeDiff</h1>
               {isRefreshing && (
-                <span className="text-sm text-gray-400 animate-pulse">Updating...</span>
+                <span className="text-sm text-gray-300">Updating...</span>
               )}
+              <ConnectionStatus connected={connected} />
             </div>
             <div className="flex items-center gap-4 flex-nowrap whitespace-nowrap">
+            {/* Compare-against target selector */}
+            <TargetSelector refs={refs} value={target} onChange={setTarget} />
+
             {/* Diff Type Selector */}
             <div className="flex">
               {(['all', 'staged', 'unstaged'] as DiffType[]).map((type, index) => (
@@ -236,7 +294,7 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
               disabled={displayMode === 'single'}
               title={displayMode === 'single' ? 'Available in All Files mode' : ''}
             >
-              {collapsedFiles.size === data?.files.length ? 'Expand All' : 'Collapse All'}
+              {allVisibleCollapsed ? 'Expand All' : 'Collapse All'}
             </button>
 
             {/* Wrap Lines Toggle */}
@@ -248,11 +306,22 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
               Wrap Lines
             </button>
 
+            <CopyReviewButton comments={comments} />
+
             <DarkModeToggle />
             </div>
           </div>
         </div>
       </header>
+
+      {commentsError && (
+        <div
+          role="alert"
+          className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm px-4 py-2 text-center"
+        >
+          Couldn&apos;t load existing review comments ({commentsError}). New comments will still be saved.
+        </div>
+      )}
 
       <div className="flex max-w-[1280px] mx-auto min-h-[calc(100vh-65px)] w-full">
         {/* Sidebar */}
@@ -260,19 +329,80 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-[#24292e] dark:text-[#c9d1d9]">
               Files changed ({data?.files.length ?? 0})
+              {reviewedCount > 0 && (
+                <span className="ml-1 font-normal text-[#586069] dark:text-[#8b949e]">
+                  · {reviewedCount} viewed
+                </span>
+              )}
             </h3>
             <button
               onClick={() => { setFileViewMode(fileViewMode === 'list' ? 'tree' : 'list'); }}
-              className="text-base p-0.5 text-[#586069] dark:text-[#8b949e] hover:text-[#24292e] dark:hover:text-[#c9d1d9] transition-colors cursor-pointer bg-transparent border-none opacity-70 hover:opacity-100"
+              className="inline-flex items-center justify-center p-1 rounded text-[#586069] dark:text-[#8b949e] hover:text-[#24292e] dark:hover:text-[#c9d1d9] hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer bg-transparent border-none
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]"
+              aria-label={fileViewMode === 'list' ? 'Switch to tree view' : 'Switch to list view'}
               title={fileViewMode === 'list' ? 'Switch to tree view' : 'Switch to list view'}
             >
-              {fileViewMode === 'list' ? '◈' : '☰'}
+              {fileViewMode === 'list'
+                ? <IconTree aria-hidden="true" className="w-4 h-4" />
+                : <IconList aria-hidden="true" className="w-4 h-4" />}
             </button>
           </div>
 
+          {allFiles.length > 0 && (
+            <div
+              className="mb-3 text-xs"
+              aria-label={`${String(diffStats.additions)} additions and ${String(diffStats.deletions)} deletions across ${String(diffStats.files)} files`}
+            >
+              <span className="text-[#1a7f37] dark:text-[#2ea043]">+{diffStats.additions}</span>
+              {' '}
+              <span className="text-[#cf222e] dark:text-[#f85149]">−{diffStats.deletions}</span>
+            </div>
+          )}
+
+          {/* File filter */}
+          {allFiles.length > 0 && (
+            <div className="mb-3 flex flex-col gap-2">
+              <input
+                type="text"
+                value={fileFilter}
+                onChange={(e) => { setFileFilter(e.target.value); }}
+                placeholder="Filter files…"
+                aria-label="Filter files by path"
+                className="w-full px-2 py-1 text-sm rounded-md border border-[#e1e4e8] dark:border-[#30363d]
+                  bg-white dark:bg-[#0d1117] text-[#24292e] dark:text-[#c9d1d9]
+                  placeholder-[#6a737d] dark:placeholder-[#8b949e]
+                  focus:outline-none focus:border-[#0366d6] dark:focus:border-[#1f6feb]
+                  focus:shadow-[0_0_0_3px_rgba(3,102,214,0.1)] dark:focus:shadow-[0_0_0_3px_rgba(31,111,235,0.1)]"
+              />
+              <select
+                value={statusFilter}
+                onChange={(e) => { setStatusFilter(e.target.value as StatusFilter); }}
+                aria-label="Filter files by status"
+                className="w-full px-2 py-1 text-sm rounded-md border border-[#e1e4e8] dark:border-[#30363d]
+                  bg-white dark:bg-[#0d1117] text-[#24292e] dark:text-[#c9d1d9] cursor-pointer
+                  focus:outline-none focus:border-[#0366d6] dark:focus:border-[#1f6feb]"
+              >
+                <option value="all">All statuses</option>
+                <option value="added">Added</option>
+                <option value="modified">Modified</option>
+                <option value="deleted">Deleted</option>
+                <option value="renamed">Renamed</option>
+              </select>
+              {isFiltering && (
+                <p className="text-xs text-[#586069] dark:text-[#8b949e]">
+                  {filteredFiles.length} of {allFiles.length} files
+                </p>
+              )}
+            </div>
+          )}
+
           {/* File List */}
+          {isFiltering && filteredFiles.length === 0 ? (
+            <p className="text-sm text-[#586069] dark:text-[#8b949e]">No files match the current filters.</p>
+          ) : (
           <FileList
-            files={data?.files ?? []}
+            files={filteredFiles}
+            commentCounts={commentCounts}
             selectedFile={selectedFile}
             onSelectFile={setSelectedFile}
             displayMode={displayMode}
@@ -290,6 +420,7 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
               })
             }}
           />
+          )}
         </div>
 
         {/* Main Content */}
@@ -305,22 +436,28 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
           }
           if (error) {
             return (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-red-500">Error loading diff: {error}</p>
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
+                <IconDanger className="w-10 h-10 text-red-500" aria-hidden="true" />
+                <p className="text-red-600 dark:text-red-400 font-medium">Couldn&apos;t load the diff</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">{error}</p>
               </div>
             )
           }
           if (!data || data.files.length === 0) {
             return (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-gray-500 dark:text-gray-400">No changes to display</p>
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
+                <IconCheckCircle className="w-10 h-10 text-[#2ea44f] dark:text-[#3fb950]" aria-hidden="true" />
+                <p className="text-[#24292e] dark:text-[#c9d1d9] font-medium">No changes to display</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
+                  Your working tree is clean for this view. Edit a file and it&apos;ll appear here automatically.
+                </p>
               </div>
             )
           }
           if (displayMode === 'all') {
             return (
           <div className="p-6">
-            {data.files.map((file) => (
+            {filteredFiles.map((file) => (
               <FileDiff
                 key={file.path}
                 file={file}
@@ -332,7 +469,10 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
                 getCommentsForLine={getCommentsForLine}
                 getCommentRangeLines={getCommentRangeLines}
                 onDeleteComment={deleteComment}
+                onUpdateComment={updateComment}
                 wrapLines={wrapLines}
+                isReviewed={isReviewed(file.path)}
+                onToggleReviewed={() => { handleToggleReviewed(file.path); }}
               />
             ))}
           </div>
@@ -351,7 +491,10 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
               getCommentsForLine={getCommentsForLine}
               getCommentRangeLines={getCommentRangeLines}
               onDeleteComment={deleteComment}
+              onUpdateComment={updateComment}
               wrapLines={wrapLines}
+              isReviewed={isReviewed(selectedFile.path)}
+              onToggleReviewed={() => { handleToggleReviewed(selectedFile.path); }}
             />
           </div>
             )
@@ -370,13 +513,10 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
         file={commentDialog?.file ?? ''}
         line={commentDialog?.line ?? 0}
         lineEnd={commentDialog?.lineEnd ?? 0}
-        onSubmit={(content) => {
+        onSubmit={async (content) => {
           if (commentDialog) {
-            void addComment(commentDialog.file, commentDialog.line, content, commentDialog.lineEnd).then(() => {
-              setCommentDialog(null)
-            }).catch((err: unknown) => {
-              console.error('Failed to add comment:', err)
-            })
+            // CommentDialog closes on success and surfaces errors itself.
+            await addComment(commentDialog.file, commentDialog.line, content, commentDialog.lineEnd)
           }
         }}
         onClose={() => { setCommentDialog(null); }}
@@ -386,11 +526,13 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
       <FullFileModal
         isOpen={!!fullFileModal}
         filePath={fullFileModal ?? ''}
+        target={target}
         onClose={() => { setFullFileModal(null); }}
         viewMode={viewMode}
         getCommentsForLine={getCommentsForLine}
         getCommentRangeLines={getCommentRangeLines}
         onDeleteComment={deleteComment}
+        onUpdateComment={updateComment}
         onAddComment={(file, line, content, lineEnd) => {
           void addComment(file, line, content, lineEnd).catch((err: unknown) => {
             console.error('Failed to add comment:', err)

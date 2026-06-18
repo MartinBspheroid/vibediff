@@ -1,15 +1,15 @@
 export type DiffType = 'all' | 'staged' | 'unstaged'
 export type ViewMode = 'unified' | 'split'
 
+export type FileStatus = 'added' | 'modified' | 'deleted' | 'renamed'
+
 export interface FileDiff {
   path: string
   oldPath?: string
-  isNew: boolean
-  isDeleted: boolean
-  isModified: boolean
-  isRenamed: boolean
+  status: FileStatus
   additions: number
   deletions: number
+  isBinary?: boolean
   hunks: Hunk[]
 }
 
@@ -43,4 +43,10 @@ export interface Comment {
   lineEnd: number
   content: string
   createdAt: string
+}
+
+export interface Ref {
+  name: string
+  type: 'branch' | 'tag'
+  current: boolean
 }

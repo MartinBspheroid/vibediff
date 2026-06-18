@@ -55,3 +55,10 @@ type DiffResult struct {
 	Files []FileDiff `json:"files"`
 	Type  DiffType   `json:"type"`
 }
+
+// Ref is a git reference (branch or tag) the user can diff against.
+type Ref struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"` // "branch" or "tag"
+	Current bool   `json:"current"`
+}

@@ -4,22 +4,25 @@ import { useWebSocket } from '../hooks/useWebSocket'
 interface WebSocketContextType {
   lastUpdate: number
   triggerUpdate: () => void
+  connected: boolean
 }
 
 const WebSocketContext = createContext<WebSocketContextType | null>(null)
 
 export function WebSocketProvider({ children }: { children: React.ReactNode }): React.ReactElement {
   const [lastUpdate, setLastUpdate] = useState(Date.now())
+  // Optimistic default avoids a "paused" flash before the first connection.
+  const [connected, setConnected] = useState(true)
 
   const triggerUpdate = useCallback(() => {
     setLastUpdate(Date.now())
   }, [])
 
   // Set up WebSocket connection at root level
-  useWebSocket(triggerUpdate)
+  useWebSocket(triggerUpdate, setConnected)
 
   return (
-    <WebSocketContext.Provider value={{ lastUpdate, triggerUpdate }}>
+    <WebSocketContext.Provider value={{ lastUpdate, triggerUpdate, connected }}>
       {children}
     </WebSocketContext.Provider>
   )

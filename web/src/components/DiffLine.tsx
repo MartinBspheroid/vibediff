@@ -4,10 +4,13 @@ import { getLanguageFromFilename, highlightCode } from '../utils/prism'
 
 interface DiffLineProps {
   line: DiffLineType
+  /** The signed line number used for selection/comment keying. */
+  lineNumber: number
   viewMode: 'unified' | 'split'
-  onMouseEnter: () => void
-  onMouseLeave: () => void
-  onDragStart?: () => void
+  // Stable handlers (DiffLine binds lineNumber itself) so React.memo can skip
+  // re-rendering unaffected lines in large diffs.
+  onMouseEnter?: (lineNumber: number) => void
+  onDragStart?: (lineNumber: number) => void
   isInSelection?: boolean
   isInCommentRange?: boolean
   filename: string
@@ -25,13 +28,26 @@ const LINE_TYPE_CONFIG = {
 }
 
 // Add Comment Button Component
-const AddCommentButton = ({ onDragStart }: { onDragStart?: () => void }): React.ReactElement => (
+const AddCommentButton = ({ onDragStart, lineLabel }: { onDragStart?: () => void; lineLabel?: string }): React.ReactElement => (
   <button
+    type="button"
+    aria-label={lineLabel ? `Add review comment on line ${lineLabel}` : 'Add review comment'}
     onMouseDown={(e) => {
       e.preventDefault()
       onDragStart?.()
     }}
-    className="absolute -left-[26px] top-0 w-[22px] h-5 bg-[#0366d6] dark:bg-[#1f6feb] text-white rounded-[3px] text-base leading-5 cursor-pointer hidden group-hover:block hover:bg-[#0256c7] dark:hover:bg-[#388bfd] hover:scale-110 transition-transform p-0"
+    onClick={(e) => {
+      // Keyboard activation (Enter/Space) fires click without a preceding mousedown.
+      if (e.detail === 0) {
+        onDragStart?.()
+      }
+    }}
+    className="absolute -left-[26px] top-0 w-[22px] h-5 bg-[#0366d6] dark:bg-[#1f6feb] text-white rounded-[3px] text-base leading-5 cursor-pointer p-0 transition-[transform,opacity]
+      opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto
+      focus-visible:opacity-100 focus-visible:pointer-events-auto
+      hover:bg-[#0256c7] dark:hover:bg-[#388bfd] hover:scale-110
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-[#0366d6] dark:focus-visible:ring-offset-[#1f6feb]
+      motion-reduce:transition-none motion-reduce:hover:scale-100"
   >
     +
   </button>
@@ -39,9 +55,9 @@ const AddCommentButton = ({ onDragStart }: { onDragStart?: () => void }): React.
 
 const DiffLine = React.memo(({
   line,
+  lineNumber,
   viewMode,
   onMouseEnter,
-  onMouseLeave,
   onDragStart,
   isInSelection = false,
   isInCommentRange = false,
@@ -51,6 +67,9 @@ const DiffLine = React.memo(({
   const config = LINE_TYPE_CONFIG[line.type]
   const isAddition = line.type === 'add' || line.type === 'added'
   const isDeletion = line.type === 'delete' || line.type === 'deleted'
+  const lineLabel = String(line.newLineNumber ?? line.newNumber ?? line.oldLineNumber ?? line.oldNumber ?? '')
+  const handleMouseEnter = onMouseEnter ? () => { onMouseEnter(lineNumber); } : undefined
+  const handleDragStart = onDragStart ? () => { onDragStart(lineNumber); } : undefined
 
   // Highlight the code content
   const highlightedContent = useMemo(() => {
@@ -67,8 +86,7 @@ const DiffLine = React.memo(({
     return (
       <tr
         className={`group font-mono text-xs leading-5 diff-line ${config.class} ${isInSelection ? 'line-selected' : ''} ${isInCommentRange ? 'line-commented-range' : ''}`}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
+        onMouseEnter={handleMouseEnter}
       >
         {/* Old Line Number */}
         <td className={`line-num w-[50px] min-w-[50px] px-[10px] text-center select-none border-r border-[#e1e4e8] dark:border-[#30363d] ${isDeletion ? 'line-num-deletion' : ''}`}>
@@ -84,7 +102,7 @@ const DiffLine = React.memo(({
         <td className={`line-code px-[10px] py-0 relative w-full ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'} ${config.codeClass}`} data-prefix={config.prefix}>
           <code className={`language-${getLanguageFromFilename(filename)}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
 
-          <AddCommentButton onDragStart={onDragStart} />
+          <AddCommentButton onDragStart={handleDragStart} lineLabel={lineLabel} />
         </td>
       </tr>
     )
@@ -98,9 +116,9 @@ const DiffLine = React.memo(({
           <td className={`line-num w-[50px] min-w-[50px] px-[10px] text-center select-none border-r border-[#e1e4e8] dark:border-[#30363d] ${isDeletion ? 'line-num-deletion' : ''} ${isInSelection ? 'line-selected' : ''} ${isInCommentRange ? 'line-commented-range' : ''}`}>
             {line.oldLineNumber ?? line.oldNumber ?? ''}
           </td>
-          <td className={`line-code px-[10px] py-0 relative border-r-2 border-r-[#e1e4e8] dark:border-r-[#30363d] ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'} ${config.codeClass} ${isInSelection ? 'line-selected' : ''} ${isInCommentRange ? 'line-commented-range' : ''}`} data-prefix={config.prefix}>
+          <td className={`line-code px-[10px] py-0 relative border-r-2 border-r-[#e1e4e8] dark:border-r-[#30363d] ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'} ${config.codeClass} ${isInSelection ? 'line-selected' : ''} ${isInCommentRange ? 'line-commented-range' : ''}`} data-prefix={config.prefix} onMouseEnter={handleMouseEnter}>
             <code className={`language-${getLanguageFromFilename(filename)}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
-            <AddCommentButton onDragStart={onDragStart} />
+            <AddCommentButton onDragStart={handleDragStart} lineLabel={lineLabel} />
           </td>
         </>
       ) : (
@@ -108,9 +126,9 @@ const DiffLine = React.memo(({
           <td className={`line-num w-[50px] min-w-[50px] px-[10px] text-center select-none border-r border-[#e1e4e8] dark:border-[#30363d] ${isAddition ? 'line-num-addition' : ''} ${isInSelection ? 'line-selected' : ''} ${isInCommentRange ? 'line-commented-range' : ''}`}>
             {line.newLineNumber ?? line.newNumber ?? ''}
           </td>
-          <td className={`line-code px-[10px] py-0 relative ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'} ${config.codeClass} ${isInSelection ? 'line-selected' : ''} ${isInCommentRange ? 'line-commented-range' : ''}`} data-prefix={config.prefix}>
+          <td className={`line-code px-[10px] py-0 relative ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'} ${config.codeClass} ${isInSelection ? 'line-selected' : ''} ${isInCommentRange ? 'line-commented-range' : ''}`} data-prefix={config.prefix} onMouseEnter={handleMouseEnter}>
             <code className={`language-${getLanguageFromFilename(filename)}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
-            <AddCommentButton onDragStart={onDragStart} />
+            <AddCommentButton onDragStart={handleDragStart} lineLabel={lineLabel} />
           </td>
         </>
       )}

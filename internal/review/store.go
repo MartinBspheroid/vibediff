@@ -72,6 +72,19 @@ func (s *Store) DeleteComment(id string) bool {
 	return false
 }
 
+// UpdateComment replaces the content of an existing comment. It returns false
+// if no comment with that id exists.
+func (s *Store) UpdateComment(id, content string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if c, exists := s.comments[id]; exists {
+		c.Content = content
+		return true
+	}
+	return false
+}
+
 func generateID() string {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {

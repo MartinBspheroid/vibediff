@@ -11,7 +11,7 @@ type ButtonVariant = 'left' | 'right' | 'middle' | 'single'
  * @returns Complete className string for the button
  */
 export function getButtonClassName(isActive: boolean, variant: ButtonVariant = 'single'): string {
-  const baseClasses = 'px-4 py-[5px] text-sm font-medium border cursor-pointer leading-5 transition-colors'
+  const baseClasses = 'px-4 py-[5px] text-sm font-medium border cursor-pointer leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb] focus-visible:ring-offset-1 dark:focus-visible:ring-offset-[#0d1117] focus-visible:relative focus-visible:z-10'
 
   const roundedClasses: Record<ButtonVariant, string> = {
     left: 'rounded-l-md',
@@ -33,7 +33,7 @@ export function getButtonClassName(isActive: boolean, variant: ButtonVariant = '
  * @returns Complete className string for the icon button
  */
 export function getIconButtonClassName(isActive: boolean): string {
-  const baseClasses = 'p-2 text-sm border rounded-md cursor-pointer transition-colors'
+  const baseClasses = 'p-2 text-sm border rounded-md cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb] focus-visible:ring-offset-1 dark:focus-visible:ring-offset-[#0d1117]'
 
   const stateClasses = isActive
     ? 'bg-[#0366d6] dark:bg-[#1f6feb] text-white border-[#0366d6] dark:border-[#1f6feb]'

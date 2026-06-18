@@ -3,7 +3,9 @@ import type { Comment } from '../types/diff'
 
 interface UseCommentsReturn {
   comments: Comment[]
+  error: string | null
   addComment: (file: string, line: number, content: string, lineEnd: number) => Promise<Comment>
+  updateComment: (id: string, content: string) => Promise<void>
   deleteComment: (id: string) => Promise<void>
   getCommentsForLine: (file: string, line: number) => Comment[]
   getCommentRangeLines: (file: string, lineOrder: number[]) => Set<number>
@@ -11,18 +13,22 @@ interface UseCommentsReturn {
 
 export function useComments(): UseCommentsReturn {
   const [comments, setComments] = useState<Comment[]>([])
+  const [error, setError] = useState<string | null>(null)
 
   // Fetch existing comments on mount
   useEffect(() => {
     const fetchComments = async (): Promise<void> => {
       try {
         const response = await fetch('/api/review/comments')
-        if (response.ok) {
-          const data = await response.json() as Comment[]
-          setComments(data)
+        if (!response.ok) {
+          throw new Error('Failed to load comments')
         }
-      } catch (error) {
-        console.error('Failed to fetch comments:', error)
+        const data = await response.json() as Comment[]
+        setComments(data)
+        setError(null)
+      } catch (err) {
+        console.error('Failed to fetch comments:', err)
+        setError(err instanceof Error ? err.message : 'Failed to load comments')
       }
     }
 
@@ -44,9 +50,28 @@ export function useComments(): UseCommentsReturn {
       const createdComment = await response.json() as Comment
       setComments(prev => [...prev, createdComment])
       return createdComment
-    } catch (error) {
-      console.error('Failed to add comment:', error)
-      throw error
+    } catch (err) {
+      console.error('Failed to add comment:', err)
+      throw err
+    }
+  }, [])
+
+  const updateComment = useCallback(async (id: string, content: string) => {
+    try {
+      const response = await fetch(`/api/review/comment/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update comment')
+      }
+
+      setComments(prev => prev.map(c => (c.id === id ? { ...c, content } : c)))
+    } catch (err) {
+      console.error('Failed to update comment:', err)
+      throw err
     }
   }, [])
 
@@ -61,9 +86,9 @@ export function useComments(): UseCommentsReturn {
       }
 
       setComments(prev => prev.filter(c => c.id !== id))
-    } catch (error) {
-      console.error('Failed to delete comment:', error)
-      throw error
+    } catch (err) {
+      console.error('Failed to delete comment:', err)
+      throw err
     }
   }, [])
 
@@ -89,7 +114,9 @@ export function useComments(): UseCommentsReturn {
 
   return {
     comments,
+    error,
     addComment,
+    updateComment,
     deleteComment,
     getCommentsForLine,
     getCommentRangeLines

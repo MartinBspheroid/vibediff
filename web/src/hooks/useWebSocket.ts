@@ -5,17 +5,25 @@ interface WSMessage {
   timestamp: number
 }
 
-export function useWebSocket(onUpdate: () => void): void {
+export function useWebSocket(onUpdate: () => void, onStatusChange?: (connected: boolean) => void): void {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isConnectingRef = useRef(false)
   const reconnectAttemptsRef = useRef(0)
+  // Per-message update timeouts, tracked so they can be cleared on unmount
+  // (otherwise they fire onUpdate after the component is gone).
+  const pendingTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
 
-  // Store onUpdate in a ref to avoid reconnecting when it changes
+  // Store callbacks in refs to avoid reconnecting when they change.
   const onUpdateRef = useRef(onUpdate)
   useEffect(() => {
     onUpdateRef.current = onUpdate
   }, [onUpdate])
+
+  const onStatusChangeRef = useRef(onStatusChange)
+  useEffect(() => {
+    onStatusChangeRef.current = onStatusChange
+  }, [onStatusChange])
 
   useEffect(() => {
     const connectWebSocket = (): void => {
@@ -39,6 +47,7 @@ export function useWebSocket(onUpdate: () => void): void {
         // WebSocket connected
         isConnectingRef.current = false
         reconnectAttemptsRef.current = 0
+        onStatusChangeRef.current?.(true)
 
         // Clear any pending reconnect
         if (reconnectTimeoutRef.current) {
@@ -55,9 +64,11 @@ export function useWebSocket(onUpdate: () => void): void {
             // Connected to live updates
           } else if (data.type === 'file_changed' || data.type === 'file_added' || data.type === 'file_deleted') {
             // Trigger update after a short delay to ensure git has finished processing
-            setTimeout(() => {
+            const id = setTimeout(() => {
+              pendingTimeoutsRef.current.delete(id)
               onUpdateRef.current()
             }, 300)
+            pendingTimeoutsRef.current.add(id)
           }
         } catch (error) {
           console.error('Error parsing WebSocket message:', error)
@@ -73,6 +84,7 @@ export function useWebSocket(onUpdate: () => void): void {
         // WebSocket disconnected
         isConnectingRef.current = false
         wsRef.current = null
+        onStatusChangeRef.current?.(false)
 
         // Exponential backoff for reconnection
         const baseDelay = 1000
@@ -89,10 +101,13 @@ export function useWebSocket(onUpdate: () => void): void {
     connectWebSocket()
 
     // Cleanup
+    const pendingTimeouts = pendingTimeoutsRef.current
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
       }
+      pendingTimeouts.forEach(clearTimeout)
+      pendingTimeouts.clear()
       if (wsRef.current) {
         wsRef.current.close()
       }

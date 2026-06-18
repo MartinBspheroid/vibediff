@@ -20,3 +20,7 @@ Thumbs.db
 # React build output
 web/dist/
 .task/
+
+# Test artifacts (Playwright, if run from repo root)
+test-results/
+playwright-report/

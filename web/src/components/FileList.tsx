@@ -1,4 +1,5 @@
 import type { FileDiff } from '../types/diff'
+import { IconChevronRight, IconChevronDown, IconChat } from './icons'
 
 interface FileListProps {
   files: FileDiff[]
@@ -8,9 +9,25 @@ interface FileListProps {
   viewMode: 'list' | 'tree'
   collapsedFolders: Set<string>
   onToggleFolderCollapse: (folder: string) => void
+  commentCounts?: Record<string, number>
 }
 
-export default function FileList({ files, selectedFile, onSelectFile, displayMode, viewMode, collapsedFolders, onToggleFolderCollapse }: FileListProps): React.ReactElement {
+/** A small "N comments" badge shown on files that have review comments. */
+function CommentBadge({ count }: { count: number }): React.ReactElement | null {
+  if (count <= 0) return null
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 text-[11px] text-[#586069] dark:text-[#8b949e]"
+      aria-label={`${String(count)} comment${count === 1 ? '' : 's'}`}
+      title={`${String(count)} comment${count === 1 ? '' : 's'}`}
+    >
+      <IconChat aria-hidden="true" className="w-3 h-3" />
+      {count}
+    </span>
+  )
+}
+
+export default function FileList({ files, selectedFile, onSelectFile, displayMode, viewMode, collapsedFolders, onToggleFolderCollapse, commentCounts = {} }: FileListProps): React.ReactElement {
   const handleFileClick = (file: FileDiff): void => {
     onSelectFile(file)
 
@@ -97,10 +114,13 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
       if (node.type === 'file' && node.file) {
         const file = node.file
         return (
-          <div
+          <button
             key={node.path}
+            type="button"
             onClick={() => { handleFileClick(file); }}
-            className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13px] break-all transition-colors
+            aria-current={selectedFile?.path === node.file.path ? 'true' : undefined}
+            className={`w-full text-left bg-transparent border-none flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13px] break-all transition-colors
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]
               ${selectedFile?.path === node.file.path
                 ? 'bg-[rgba(54,158,255,0.1)] dark:bg-[rgba(177,186,196,0.12)] border-l-[3px] border-l-[#2188ff] dark:border-l-[#f78166] -ml-[3px] pl-[calc(0.5rem-3px)]'
                 : 'hover:bg-[#f0f3f6] dark:hover:bg-[rgba(255,255,255,0.05)]'
@@ -108,11 +128,12 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
             style={{ paddingLeft: `${String(depth * 20 + 8)}px` }}
           >
             <span className="flex-1 min-w-0">{node.name}</span>
-            <div className="flex items-center gap-1 text-xs flex-shrink-0">
-              <span className="text-[#28a745] dark:text-[#2ea043]">+{node.file.additions}</span>
-              <span className="text-[#d73a49] dark:text-[#f85149]">-{node.file.deletions}</span>
-            </div>
-          </div>
+            <span className="flex items-center gap-1.5 text-xs flex-shrink-0">
+              <CommentBadge count={commentCounts[node.file.path] ?? 0} />
+              <span className="text-[#1a7f37] dark:text-[#2ea043]">+{node.file.additions}</span>
+              <span className="text-[#cf222e] dark:text-[#f85149]">-{node.file.deletions}</span>
+            </span>
+          </button>
         )
       }
 
@@ -120,18 +141,24 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
         const isCollapsed = collapsedFolders.has(node.path)
         return (
           <div key={node.path} className="mb-0.5">
-            <div
-              className="flex items-center px-2 py-1 rounded-[3px] cursor-pointer select-none hover:bg-[rgba(0,0,0,0.05)] dark:hover:bg-[rgba(255,255,255,0.05)]"
+            <button
+              type="button"
+              aria-expanded={!isCollapsed}
+              aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} folder ${node.name}`}
+              className="w-full text-left bg-transparent border-none flex items-center px-2 py-1 rounded-[3px] cursor-pointer select-none hover:bg-[rgba(0,0,0,0.05)] dark:hover:bg-[rgba(255,255,255,0.05)]
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]"
               onClick={() => {
                 onToggleFolderCollapse(node.path)
               }}
               style={{ paddingLeft: `${String(depth * 20 + 8)}px` }}
             >
-              <span className="mr-1.5 text-[10px] text-[#586069] dark:text-[#8b949e] font-mono inline-block w-3">
-                {isCollapsed ? '▶' : '▼'}
+              <span className="mr-1.5 text-[#586069] dark:text-[#8b949e] inline-flex items-center w-3">
+                {isCollapsed
+                  ? <IconChevronRight aria-hidden="true" className="w-3 h-3" />
+                  : <IconChevronDown aria-hidden="true" className="w-3 h-3" />}
               </span>
               <span className="font-medium text-sm">{node.name}</span>
-            </div>
+            </button>
             <div style={{ display: isCollapsed ? 'none' : 'block' }}>
               {node.children.map(child => renderTreeNode(child, depth + 1))}
             </div>
@@ -152,21 +179,25 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
   return (
     <div className="flex flex-col gap-0.5">
       {files.map((file) => (
-        <div
+        <button
           key={file.path}
+          type="button"
           onClick={() => { handleFileClick(file); }}
-          className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13px] break-all transition-colors
+          aria-current={selectedFile?.path === file.path ? 'true' : undefined}
+          className={`w-full text-left bg-transparent border-none flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13px] break-all transition-colors
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]
             ${selectedFile?.path === file.path
               ? 'bg-[rgba(54,158,255,0.1)] dark:bg-[rgba(177,186,196,0.12)] border-l-[3px] border-l-[#2188ff] dark:border-l-[#f78166] -ml-[3px] pl-[calc(0.5rem-3px)]'
               : 'hover:bg-[#f0f3f6] dark:hover:bg-[rgba(255,255,255,0.05)]'
             }`}
         >
           <span className="flex-1 min-w-0">{file.path}</span>
-          <div className="flex items-center gap-1 text-xs flex-shrink-0">
-            <span className="text-[#28a745] dark:text-[#2ea043]">+{file.additions}</span>
-            <span className="text-[#d73a49] dark:text-[#f85149]">-{file.deletions}</span>
-          </div>
-        </div>
+          <span className="flex items-center gap-1.5 text-xs flex-shrink-0">
+            <CommentBadge count={commentCounts[file.path] ?? 0} />
+            <span className="text-[#1a7f37] dark:text-[#2ea043]">+{file.additions}</span>
+            <span className="text-[#cf222e] dark:text-[#f85149]">-{file.deletions}</span>
+          </span>
+        </button>
       ))}
     </div>
   )

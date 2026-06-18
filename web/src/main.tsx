@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import ErrorBoundary from './components/ErrorBoundary.tsx'
 
 // Apply saved theme before React renders to prevent flash
 const savedTheme = localStorage.getItem('theme')
@@ -16,6 +17,8 @@ if (!rootElement) throw new Error('Failed to find the root element')
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )

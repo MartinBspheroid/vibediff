@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -12,8 +13,18 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		// Allow all origins in development
-		return true
+		// Reject cross-origin WebSocket upgrades (defends against CSWSH when the
+		// server is bound to a non-localhost interface). An empty Origin (non-
+		// browser clients, some same-origin requests) is allowed.
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		return u.Host == r.Host
 	},
 }
 
@@ -126,9 +137,7 @@ func (c *WSClient) readPump() {
 
 	if err := c.conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
 		if os.Getenv("VIBEDIFF_DEBUG") == "true" {
-			if os.Getenv("VIBEDIFF_DEBUG") == "true" {
-				log.Printf("Failed to set read deadline: %v", err)
-			}
+			log.Printf("Failed to set read deadline: %v", err)
 		}
 	}
 	c.conn.SetPongHandler(func(string) error {

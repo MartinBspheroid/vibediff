@@ -54,6 +54,42 @@ func openBrowser(url string) error {
 	return exec.Command(cmd, args...).Start()
 }
 
+// newRouter wires all HTTP routes: the JSON API, the WebSocket endpoint, static
+// asset serving, and the SPA catch-all that serves index.html for client routes.
+func newRouter(handler *handlers.Handler, wsHub *handlers.WSHub, distFS fs.FS) *mux.Router {
+	r := mux.NewRouter()
+
+	r.HandleFunc("/api/diff", handler.GetDiff).Methods("GET")
+	r.HandleFunc("/api/refs", handler.GetRefs).Methods("GET")
+	r.HandleFunc("/api/diff/{file:.+}/full", handler.GetFullFileWithDiff).Methods("GET")
+	r.HandleFunc("/api/diff/{file:.+}", handler.GetFileDiff).Methods("GET")
+	r.HandleFunc("/api/review/comment", handler.AddComment).Methods("POST")
+	r.HandleFunc("/api/review/comments", handler.GetComments).Methods("GET")
+	r.HandleFunc("/api/review/comment/{id}", handler.DeleteComment).Methods("DELETE")
+	r.HandleFunc("/api/review/comment/{id}", handler.UpdateComment).Methods("PUT")
+	r.HandleFunc("/api/ws", handler.HandleWebSocket(wsHub)).Methods("GET")
+	r.HandleFunc("/api/file", handler.GetFileContent).Methods("GET")
+
+	r.PathPrefix("/assets/").Handler(http.FileServer(http.FS(distFS)))
+	r.PathPrefix("/themes/").Handler(http.FileServer(http.FS(distFS)))
+
+	// Catch-all for the React app (must be registered last): serve index.html
+	// so client-side routes resolve.
+	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		indexHTML, err := fs.ReadFile(distFS, "index.html")
+		if err != nil {
+			http.Error(w, "Application not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := w.Write(indexHTML); err != nil {
+			log.Printf("Failed to write response: %v", err)
+		}
+	})
+
+	return r
+}
+
 func main() {
 	// Parse command line flags
 	var (
@@ -96,6 +132,14 @@ func main() {
 
 	gitService := git.NewService()
 	gitService.SetDiffTarget(target)
+
+	// Fail fast with a clear message instead of starting a server that can't
+	// produce any diffs.
+	if !gitService.IsGitRepo() {
+		fmt.Fprintln(os.Stderr, "Error: not a git repository. Run vibediff inside a git repository.")
+		os.Exit(1)
+	}
+
 	handler := handlers.NewHandler(gitService, reviewStore)
 	handler.SetFormat(*format)
 
@@ -107,54 +151,21 @@ func main() {
 	gitWatcher := watcher.NewGitWatcher(wsHub)
 	gitWatcher.Start()
 
-	r := mux.NewRouter()
-
-	r.HandleFunc("/api/diff", handler.GetDiff).Methods("GET")
-	r.HandleFunc("/api/diff/{file:.+}/full", handler.GetFullFileWithDiff).Methods("GET")
-	r.HandleFunc("/api/diff/{file:.+}", handler.GetFileDiff).Methods("GET")
-	r.HandleFunc("/api/review/comment", handler.AddComment).Methods("POST")
-	r.HandleFunc("/api/review/comments", handler.GetComments).Methods("GET")
-	r.HandleFunc("/api/review/comment/{id}", handler.DeleteComment).Methods("DELETE")
-
-	// WebSocket endpoint for live updates
-	r.HandleFunc("/api/ws", handler.HandleWebSocket(wsHub)).Methods("GET")
-
-	// Serve static assets from React build
+	// Serve static assets from the embedded React build.
 	webFS, err := fs.Sub(webFiles, "web/dist")
 	if err != nil {
 		log.Fatal("Failed to create sub filesystem:", err)
 	}
-	r.PathPrefix("/assets/").Handler(http.FileServer(http.FS(webFS)))
-	r.PathPrefix("/themes/").Handler(http.FileServer(http.FS(webFS)))
 
-	// API routes for file content
-	r.HandleFunc("/api/file", handler.GetFileContent).Methods("GET")
-
-	// Catch-all route for React app (must be last)
-	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Serve index.html for all non-API routes (React routing)
-		indexHTML, err := webFiles.ReadFile("web/dist/index.html")
-		if err != nil {
-			// Fallback to file system in development
-			if _, err := os.Stat("web/dist/index.html"); err == nil {
-				http.ServeFile(w, r, "web/dist/index.html")
-				return
-			}
-			http.Error(w, "Application not found", http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if _, err := w.Write(indexHTML); err != nil {
-			log.Printf("Failed to write response: %v", err)
-		}
-	})
+	r := newRouter(handler, wsHub, webFS)
 
 	addr := fmt.Sprintf("%s:%d", *host, *port)
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		Addr:           addr,
+		Handler:        r,
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   15 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 
 	// Determine if we should open the browser
@@ -167,7 +178,7 @@ func main() {
 
 	go func() {
 		fmt.Fprintf(os.Stderr, "Starting VibeDiff server on http://%s\n", addr)
-		
+
 		// Open browser if enabled
 		if shouldOpen {
 			// Give the server a moment to start
@@ -179,7 +190,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Opening browser at %s\n", url)
 			}
 		}
-		
+
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed to start: %v", err)
 		}

@@ -14,13 +14,19 @@ A local Git diff viewer that runs entirely on your machine. Review your code cha
 
 - 🎨 GitHub-like diff visualization with syntax highlighting (PrismJS)
 - 📁 View all changes, staged changes, or unstaged changes
+- 🌿 Compare your working tree against any branch or tag, right in the UI
 - 🔀 Side-by-side and unified diff view modes
-- 📋 Export review comments as text or JSON
-- 💬 Inline code review comments with persistent storage
+- 💬 Inline code review comments — add, **edit**, and delete with persistent storage
+- 📋 Copy all review comments to the clipboard as text or JSON (paste into your AI assistant)
+- ✅ Mark files as "viewed" (auto-collapses, persisted) with a per-file progress count
+- 🏷️ File status badges (added / modified / deleted / renamed)
+- 🔎 Filter the file list by path or by change status
+- 💬 Per-file comment-count badges so you can find your annotations
 - 🔄 Real-time updates via WebSocket when files change
 - ⚡ Single binary distribution with embedded web assets
 - 🌓 Dark mode support with automatic theme detection
 - 🔍 View full files with diff context highlighting
+- ♿ Keyboard-accessible navigation (file list, collapse controls, dialogs)
 - 📱 Responsive design with collapsible file tree
 
 ## Installation
@@ -70,6 +76,10 @@ task build
 
 ### AI-Powered Workflow
 
+The fastest path: add your review comments in the browser, then click **Copy review**
+in the header to copy them all to the clipboard (as text or JSON) and paste them
+straight into your AI assistant. Prefer the terminal? You can still capture them:
+
 1. **Capture review comments to a file**:
    ```bash
    # Redirect output to a file as comments are added
@@ -98,9 +108,12 @@ task build
 ### Features Guide
 
 - **Diff Types**: Switch between viewing all changes, staged changes, or unstaged changes
+- **Compare Against**: Pick a branch or tag from the header to diff your working tree against it
 - **View Modes**: Toggle between side-by-side and unified diff views
-- **File Navigation**: Use the collapsible file tree or file list view
-- **Code Review**: Click the `+` button on any line to add a comment
+- **File Navigation**: Use the collapsible file tree or file list view; filter by path or status
+- **Mark as Viewed**: Tick "Viewed" on a file to collapse it and track review progress
+- **Code Review**: Click the `+` button on any line to add a comment; edit or delete it later (Esc cancels an edit, Cmd/Ctrl+Enter saves)
+- **Copy Review**: Copy all comments as text or JSON for pasting into an AI assistant
 - **Full File View**: Click "View full file" to see the complete file with diff highlights
 - **Dark Mode**: Toggle between light and dark themes (automatically detects system preference)
 - **Real-time Updates**: Changes to files are automatically reflected without page refresh
@@ -173,8 +186,16 @@ Options:
   -port int        Port to bind the server to (default 8888)
   -format string   Output format for review comments: text or json (default "text")
   -debug           Enable debug logging
+  -no-open         Disable automatic browser opening (useful in CI/headless)
   -version         Show version information
 ```
+
+### Environment Variables
+
+| Variable | Effect |
+|----------|--------|
+| `VIBEDIFF_NO_OPEN` | Any non-empty value disables automatic browser opening (same as `-no-open`) |
+| `VIBEDIFF_DEBUG` | Set to `true` to enable debug logging (same as `-debug`) |
 
 ## License
 
