@@ -427,13 +427,13 @@ func TestService_CommandTimeout(t *testing.T) {
 	// A 1ns timeout expires before git can finish, so the command is bounded
 	// and surfaces an error instead of blocking.
 	s.SetCommandTimeout(time.Nanosecond)
-	if _, err := s.GetStatus(); err == nil {
+	if _, err := s.GetRefs(); err == nil {
 		t.Error("expected a timeout error with a 1ns command timeout, got nil")
 	}
 
 	// With a generous timeout the same call succeeds.
 	s.SetCommandTimeout(30 * time.Second)
-	if _, err := s.GetStatus(); err != nil {
+	if _, err := s.GetRefs(); err != nil {
 		t.Errorf("expected success with a normal timeout, got %v", err)
 	}
 }

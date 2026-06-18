@@ -90,6 +90,17 @@ test('marks a file as viewed, collapsing it, and persists across reload', async 
   await expect(page.getByText(/1 viewed/)).toBeVisible()
 })
 
+test('focuses the file filter with the "/" shortcut', async ({ page, appURL }) => {
+  await page.goto(appURL)
+  await expect(page.getByText('hello.txt').first()).toBeVisible()
+
+  await page.keyboard.press('/')
+  const filter = page.getByLabel('Filter files by path')
+  await expect(filter).toBeFocused()
+  // The "/" focuses rather than typing into the field.
+  await expect(filter).toHaveValue('')
+})
+
 test('filters the file list by path', async ({ page, appURL }) => {
   await page.goto(appURL)
   await expect(page.getByText('hello.txt').first()).toBeVisible()
@@ -140,6 +151,10 @@ test('opens the full-file modal and restores focus on close', async ({ page, app
   const dialog = page.getByRole('dialog', { name: /Full file: hello\.txt/ })
   await expect(dialog).toBeVisible()
 
+  // Focus is trapped inside the modal: Tabbing keeps focus within the dialog.
+  await page.keyboard.press('Shift+Tab')
+  expect(await dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true)
+
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   // Focus returns to the button that opened the modal (a11y).
@@ -166,6 +181,16 @@ test('respects prefers-reduced-motion (neutralizes transitions)', async ({ page,
   const duration = await btn.evaluate((el) => getComputedStyle(el).transitionDuration)
   const ms = duration.trim().endsWith('ms') ? parseFloat(duration) : parseFloat(duration) * 1000
   expect(ms).toBeLessThanOrEqual(1)
+})
+
+test('live-updates the diff when a file changes on disk', async ({ page, server }) => {
+  await page.goto(server.url)
+  await expect(page.getByText('CHANGED', { exact: false }).first()).toBeVisible()
+
+  // Edit the file on disk; the watcher + WebSocket should refresh the diff
+  // without a manual reload.
+  server.writeFile('hello.txt', 'line one\nline two LIVE-EDIT\nline three\n')
+  await expect(page.getByText('LIVE-EDIT', { exact: false }).first()).toBeVisible({ timeout: 10_000 })
 })
 
 test('toggles dark mode and persists it across reload', async ({ page, appURL }) => {

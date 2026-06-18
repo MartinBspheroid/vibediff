@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import type { DiffType, ViewMode, FileDiff as FileDiffType } from '../types/diff'
 import { filterFiles, filterByStatus, type StatusFilter } from '../utils/filterFiles'
 import { countCommentsByFile } from '../utils/commentCounts'
@@ -62,6 +62,7 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
   const reviewedCount = data ? data.files.filter((f) => reviewedFiles.has(f.path)).length : 0
 
   const [fileFilter, setFileFilter] = useState('')
+  const fileFilterRef = useRef<HTMLInputElement>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const allFiles = useMemo(() => data?.files ?? [], [data])
   const filteredFiles = useMemo(
@@ -152,6 +153,13 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
       if (!data?.files.length || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return
+      }
+
+      // "/" jumps to the file filter (common search shortcut).
+      if (e.key === '/') {
+        e.preventDefault()
+        fileFilterRef.current?.focus()
         return
       }
 
@@ -363,10 +371,11 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
           {allFiles.length > 0 && (
             <div className="mb-3 flex flex-col gap-2">
               <input
+                ref={fileFilterRef}
                 type="text"
                 value={fileFilter}
                 onChange={(e) => { setFileFilter(e.target.value); }}
-                placeholder="Filter files…"
+                placeholder="Filter files… (press /)"
                 aria-label="Filter files by path"
                 className="w-full px-2 py-1 text-sm rounded-md border border-[#e1e4e8] dark:border-[#30363d]
                   bg-white dark:bg-[#0d1117] text-[#24292e] dark:text-[#c9d1d9]

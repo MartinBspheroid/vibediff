@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 interface CommentDialogProps {
   isOpen: boolean
@@ -53,24 +54,8 @@ export default function CommentDialog({ isOpen, file, line, lineEnd, onSubmit, o
     }
   }
 
-  // Keep keyboard focus inside the dialog while it is open (focus trap).
-  const handleDialogKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key !== 'Tab' || !dialogRef.current) return
-    const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
-    )
-    if (focusable.length === 0) return
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    const active = document.activeElement
-    if (e.shiftKey && active === first) {
-      e.preventDefault()
-      last.focus()
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault()
-      first.focus()
-    }
-  }
+  // Keep keyboard focus inside the dialog while it is open.
+  useFocusTrap(dialogRef, isOpen)
 
   if (!isOpen) return null
 
@@ -88,7 +73,6 @@ export default function CommentDialog({ isOpen, file, line, lineEnd, onSubmit, o
         aria-labelledby="comment-dialog-title"
         className="bg-white dark:bg-[#161b22] rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.12)] w-[480px] max-w-[90%]"
         onClick={(e) => { e.stopPropagation(); }}
-        onKeyDown={handleDialogKeyDown}
       >
         <form onSubmit={handleSubmit} className="p-4">
           <h3 id="comment-dialog-title" className="text-base font-semibold text-[#24292e] dark:text-[#c9d1d9] mb-2">

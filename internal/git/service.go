@@ -115,23 +115,6 @@ func (s *Service) GetDiffForTarget(target string, diffType DiffType, contextLine
 	}, nil
 }
 
-func (s *Service) GetStatus() ([]string, error) {
-	output, err := s.runGitCommand("status", "--porcelain")
-	if err != nil {
-		return nil, err
-	}
-
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	var files []string
-	for _, line := range lines {
-		if len(line) > 3 {
-			files = append(files, strings.TrimSpace(line[3:]))
-		}
-	}
-
-	return files, nil
-}
-
 // GetRefs lists local branches and tags that can be selected as diff targets.
 func (s *Service) GetRefs() ([]Ref, error) {
 	current, _ := s.runGitCommand("rev-parse", "--abbrev-ref", "HEAD")

@@ -1,10 +1,58 @@
 package handlers
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
+
+	"github.com/malvex/vibediff/internal/git"
+	"github.com/malvex/vibediff/internal/review"
 )
+
+func TestHandleWebSocket_Integration(t *testing.T) {
+	hub := NewWSHub()
+	go hub.Run()
+	defer hub.Shutdown()
+	h := NewHandler(git.NewService(), review.NewStore())
+
+	srv := httptest.NewServer(h.HandleWebSocket(hub))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	// The server sends an initial "connected" message on upgrade.
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read initial message: %v", err)
+	}
+	if !strings.Contains(string(msg), "connected") {
+		t.Errorf("initial message = %q, want it to contain \"connected\"", msg)
+	}
+
+	// A broadcast reaches the connected client (exercises the write pump).
+	hub.NotifyChange("file_changed")
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	_, msg, err = conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read broadcast: %v", err)
+	}
+	if !strings.Contains(string(msg), "file_changed") {
+		t.Errorf("broadcast message = %q, want it to contain \"file_changed\"", msg)
+	}
+}
 
 func TestWSHub_RegisterBroadcastUnregister(t *testing.T) {
 	hub := NewWSHub()

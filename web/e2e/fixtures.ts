@@ -31,6 +31,8 @@ interface AppServer {
   url: string
   /** Kills the server process (to test disconnect/reconnect behavior). */
   stop: () => void
+  /** Writes a file in the repo (to test live updates from the file watcher). */
+  writeFile: (name: string, content: string) => void
 }
 
 interface Fixtures {
@@ -100,6 +102,7 @@ function noCommitRepo(dir: string): void {
 interface RunningServer {
   url: string
   stop: () => void
+  writeFile: (name: string, content: string) => void
   teardown: () => void
 }
 
@@ -117,6 +120,7 @@ async function launchServer(setupRepo: (dir: string) => void, port: number): Pro
     // SIGKILL drops the port immediately (SIGTERM would trigger the server's
     // graceful shutdown, letting in-flight requests through).
     stop: () => { proc.kill('SIGKILL') },
+    writeFile: (name: string, content: string) => { writeFileSync(join(dir, name), content) },
     teardown: () => {
       proc.kill()
       rmSync(dir, { recursive: true, force: true })
@@ -133,7 +137,7 @@ export const test = base.extend<Fixtures>({
   server: async ({}, use, testInfo) => {
     const s = await launchServer(defaultRepo, 8900 + (testInfo.workerIndex || 0))
     try {
-      await use({ url: s.url, stop: s.stop })
+      await use({ url: s.url, stop: s.stop, writeFile: s.writeFile })
     } finally {
       s.teardown()
     }

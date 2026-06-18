@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import type { FileDiff, Comment } from '../types/diff'
 import FileDiffComponent from './FileDiff'
 import CommentDialog from './CommentDialog'
@@ -23,6 +24,8 @@ export default function FullFileModal({ isOpen, filePath, target = '', onClose, 
   const [error, setError] = useState<string | null>(null)
   const [commentDialog, setCommentDialog] = useState<{ line: number; lineEnd: number } | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(dialogRef, isOpen)
 
   const fetchFileContent = useCallback(async (signal: AbortSignal): Promise<void> => {
     setLoading(true)
@@ -95,6 +98,7 @@ export default function FullFileModal({ isOpen, filePath, target = '', onClose, 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[rgba(0,0,0,0.5)] dark:bg-[rgba(0,0,0,0.8)] p-8" onClick={onClose}>
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="full-file-modal-title"
