@@ -1,7 +1,7 @@
 FROM golang:1.22-alpine AS builder
 WORKDIR /src
 RUN apk add --no-cache git nodejs npm
-COPY . .
+RUN git clone --depth=1 --branch master https://github.com/MartinBspheroid/vibediff.git /src
 RUN cd web && npm ci && npm run build
 RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o vibediff .
 
