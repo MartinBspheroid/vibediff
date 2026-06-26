@@ -10,44 +10,20 @@ import { useComments } from '../hooks/useComments'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { useRefs } from '../hooks/useRefs'
 import { useReviewedFiles } from '../hooks/useReviewedFiles'
-import TargetSelector from './TargetSelector'
-import CopyReviewButton from './CopyReviewButton'
-import { IconList, IconTree, IconCheckCircle, IconDanger, IconKeyboard, IconSettings } from './icons'
+import { IconList, IconTree, IconCheckCircle, IconDanger } from './icons'
 import { useWebSocketUpdates } from '../contexts/WebSocketContext'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu'
 import FileList from './FileList'
 import FileDiff from './FileDiff'
 import CommentDialog from './CommentDialog'
 import FullFileModal from './FullFileModal'
-import DarkModeToggle from './DarkModeToggle'
-import ConnectionStatus from './ConnectionStatus'
 import KeyboardShortcutsDialog from './KeyboardShortcutsDialog'
+import { DiffToolbar } from './DiffToolbar'
 
 interface DiffViewerProps {
   className?: string
-}
-
-// Position classes that visually join shadcn Buttons into a single segmented
-// control (shared borders, only the outer corners rounded).
-function segItem(index: number, total: number): string {
-  const base = 'focus-visible:z-10'
-  if (total <= 1) return base
-  if (index === 0) return `${base} rounded-r-none`
-  if (index === total - 1) return `${base} rounded-l-none -ml-px`
-  return `${base} rounded-none -ml-px`
 }
 
 export default function DiffViewer({ className = '' }: DiffViewerProps): React.ReactElement {
@@ -337,125 +313,29 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
 
   return (
     <div className={`flex flex-col h-screen bg-white dark:bg-[#0d1117] ${viewMode === 'split' ? 'split-view-active' : ''}`}>
-      {/* Header - GitHub style dark header */}
-      <header className="bg-[#24292e] dark:bg-[#161b22] text-white border-b border-[#e1e4e8] dark:border-[#30363d]">
-        <div className="app-container px-4 py-4">
-          <div className="flex items-center justify-between flex-nowrap">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold">VibeDiff</h1>
-              {(isRefreshing || loading) && (
-                <span className="text-sm text-gray-300">Updating...</span>
-              )}
-              <ConnectionStatus connected={connected} />
-            </div>
-            <div className="flex items-center gap-4 flex-nowrap whitespace-nowrap">
-            {/* Compare-against target selector */}
-            <TargetSelector refs={refs} value={target} onChange={setTarget} />
-
-            {/* Diff Type Selector */}
-            <div className="flex">
-              {(['all', 'staged', 'unstaged'] as DiffType[]).map((type, index) => (
-                <Button
-                  key={type}
-                  variant={diffType === type ? 'default' : 'outline'}
-                  onClick={() => { setDiffType(type); }}
-                  className={segItem(index, 3)}
-                >
-                  {type === 'all' ? 'All Changes' : type.charAt(0).toUpperCase() + type.slice(1)}
-                </Button>
-              ))}
-            </div>
-
-            {/* View Mode Toggle */}
-            <div className="flex">
-              <Button variant={viewMode === 'unified' ? 'default' : 'outline'} onClick={() => { setViewMode('unified'); }} className={segItem(0, 2)}>
-                Unified
-              </Button>
-              <Button variant={viewMode === 'split' ? 'default' : 'outline'} onClick={() => { setViewMode('split'); }} className={segItem(1, 2)}>
-                Split
-              </Button>
-            </div>
-
-            {/* Display Mode Toggle */}
-            <div className="flex">
-              <Button variant={displayMode === 'single' ? 'default' : 'outline'} onClick={() => { setDisplayMode('single'); }} className={segItem(0, 2)}>
-                Single File
-              </Button>
-              <Button variant={displayMode === 'all' ? 'default' : 'outline'} onClick={() => { setDisplayMode('all'); }} className={segItem(1, 2)}>
-                All Files
-              </Button>
-            </div>
-
-            {/* Collapse All Button */}
-            <Button
-              variant="outline"
-              onClick={toggleAllCollapse}
-              disabled={displayMode === 'single'}
-              title={displayMode === 'single' ? 'Available in All Files mode' : ''}
-            >
-              {allVisibleCollapsed ? 'Expand All' : 'Collapse All'}
-            </Button>
-
-            {/* Display options (wrap / whitespace / context) consolidated into a
-                single menu to keep the toolbar uncluttered. */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" aria-label="View options" title="View options">
-                  <IconSettings aria-hidden="true" className="w-4 h-4" />
-                  View
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Display</DropdownMenuLabel>
-                <DropdownMenuCheckboxItem
-                  checked={wrapLines}
-                  onCheckedChange={setWrapLines}
-                  onSelect={(e) => { e.preventDefault(); }}
-                >
-                  Wrap lines
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem
-                  checked={ignoreWhitespace}
-                  onCheckedChange={setIgnoreWhitespace}
-                  onSelect={(e) => { e.preventDefault(); }}
-                >
-                  Ignore whitespace
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>Context lines</DropdownMenuLabel>
-                <DropdownMenuRadioGroup value={String(contextLines)} onValueChange={(v) => { setContextLines(Number(v)); }}>
-                  <DropdownMenuRadioItem value="3">3 lines</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="10">10 lines</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="25">25 lines</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="100000">Full file</DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <CopyReviewButton comments={comments} />
-
-            <TooltipProvider delayDuration={300}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => { setShowShortcuts(true); }}
-                    aria-label="Keyboard shortcuts"
-                    aria-keyshortcuts="?"
-                  >
-                    <IconKeyboard aria-hidden="true" className="w-4 h-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Keyboard shortcuts (?)</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <DarkModeToggle />
-            </div>
-          </div>
-        </div>
-      </header>
+      <DiffToolbar
+        refs={refs}
+        target={target}
+        onTargetChange={setTarget}
+        diffType={diffType}
+        onDiffTypeChange={setDiffType}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        displayMode={displayMode}
+        onDisplayModeChange={setDisplayMode}
+        allVisibleCollapsed={allVisibleCollapsed}
+        onToggleAllCollapse={toggleAllCollapse}
+        wrapLines={wrapLines}
+        onWrapLinesChange={setWrapLines}
+        ignoreWhitespace={ignoreWhitespace}
+        onIgnoreWhitespaceChange={setIgnoreWhitespace}
+        contextLines={contextLines}
+        onContextLinesChange={setContextLines}
+        comments={comments}
+        connected={connected}
+        isUpdating={isRefreshing || loading}
+        onShowShortcuts={() => { setShowShortcuts(true); }}
+      />
 
       {commentsError && (
         <div
@@ -466,7 +346,7 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
         </div>
       )}
 
-      <div className="app-container flex min-h-[calc(100vh-65px)]">
+      <div className="app-container flex min-h-0 flex-1">
         {/* Sidebar */}
         <div className="w-[260px] bg-[#fafbfc] dark:bg-[#0d1117] border-r border-[#e1e4e8] dark:border-[#30363d] p-4 overflow-y-auto">
           <div className="flex items-center justify-between mb-3">

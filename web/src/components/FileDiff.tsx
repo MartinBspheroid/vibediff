@@ -216,7 +216,7 @@ export default function FileDiff({
                   <React.Fragment key={hunkIndex}>
                     {/* Hunk Header */}
                     <tr>
-                      <td colSpan={3} className="px-[10px] py-1 text-xs font-mono text-left" style={{ backgroundColor: 'var(--color-hunk-bg)', color: 'var(--color-hunk-text)' }}>
+                      <td colSpan={3} className="bg-[var(--color-hunk-bg)] px-[10px] py-1 text-left font-mono text-xs text-[var(--color-hunk-text)]">
                         {hunk.header}
                       </td>
                     </tr>
@@ -267,7 +267,7 @@ export default function FileDiff({
                   <React.Fragment key={hunkIndex}>
                     {/* Hunk Header */}
                     <tr>
-                      <td colSpan={4} className="px-[10px] py-1 text-xs font-mono text-left" style={{ backgroundColor: 'var(--color-hunk-bg)', color: 'var(--color-hunk-text)' }}>
+                      <td colSpan={4} className="bg-[var(--color-hunk-bg)] px-[10px] py-1 text-left font-mono text-xs text-[var(--color-hunk-text)]">
                         {hunk.header}
                       </td>
                     </tr>

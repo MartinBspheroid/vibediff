@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import type { FileDiff } from '../types/diff'
 import { IconChevronRight, IconChevronDown, IconChat } from './icons'
 
@@ -10,6 +11,14 @@ interface FileListProps {
   collapsedFolders: Set<string>
   onToggleFolderCollapse: (folder: string) => void
   commentCounts?: Record<string, number>
+}
+
+interface TreeNode {
+  name: string
+  path: string
+  type: 'folder' | 'file'
+  children: TreeNode[]
+  file?: FileDiff
 }
 
 /** A small "N comments" badge shown on files that have review comments. */
@@ -27,7 +36,85 @@ function CommentBadge({ count }: { count: number }): React.ReactElement | null {
   )
 }
 
+function sortTreeNode(node: TreeNode): TreeNode {
+  const children = [...node.children.map((child) => child.type === 'folder' ? sortTreeNode(child) : child)]
+    .sort((a: TreeNode, b: TreeNode) => {
+      if (a.type === b.type) {
+        return a.name.localeCompare(b.name)
+      }
+      return a.type === 'folder' ? -1 : 1
+    })
+
+  return { ...node, children }
+}
+
+function buildTree(files: FileDiff[]): TreeNode {
+  const root: TreeNode = { name: 'root', path: '', type: 'folder', children: [] }
+
+  files.forEach(file => {
+    const parts = file.path.split('/')
+    let currentNode = root
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const folderName = parts[i]
+      const folderPath = parts.slice(0, i + 1).join('/')
+
+      let folder = currentNode.children.find(
+        child => child.type === 'folder' && child.name === folderName
+      )
+
+      if (!folder) {
+        folder = {
+          name: folderName,
+          path: folderPath,
+          type: 'folder',
+          children: []
+        }
+        currentNode.children.push(folder)
+      }
+
+      currentNode = folder
+    }
+
+    currentNode.children.push({
+      name: parts[parts.length - 1],
+      path: file.path,
+      type: 'file',
+      children: [],
+      file
+    })
+  })
+
+  return sortTreeNode(root)
+}
+
+function indentClass(depth: number): string {
+  const classes = [
+    'pl-2',
+    'pl-7',
+    'pl-12',
+    'pl-16',
+    'pl-20',
+    'pl-24',
+    'pl-28',
+    'pl-32',
+  ] as const
+
+  return classes[Math.min(depth, classes.length - 1)]
+}
+
+function itemClass(selected: boolean): string {
+  return `w-full text-left bg-transparent border border-transparent flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13px] break-all transition-colors
+    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]
+    ${selected
+      ? 'bg-[#ddf4ff] text-[#0969da] border-[#54aeff]/45 dark:bg-[#1f6feb]/20 dark:text-[#79c0ff] dark:border-[#388bfd]/35'
+      : 'text-[#24292e] dark:text-[#c9d1d9] hover:bg-[#f0f3f6] dark:hover:bg-[rgba(255,255,255,0.05)]'
+    }`
+}
+
 export default function FileList({ files, selectedFile, onSelectFile, displayMode, viewMode, collapsedFolders, onToggleFolderCollapse, commentCounts = {} }: FileListProps): React.ReactElement {
+  const tree = useMemo(() => buildTree(files), [files])
+
   const handleFileClick = (file: FileDiff): void => {
     onSelectFile(file)
 
@@ -40,76 +127,7 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
     }
   }
 
-  // Build tree structure for tree view
-  interface TreeNode {
-    name: string
-    path: string
-    type: 'folder' | 'file'
-    children: TreeNode[]
-    file?: FileDiff
-  }
-
-  const buildTree = (): TreeNode => {
-    const root: TreeNode = { name: 'root', path: '', type: 'folder', children: [] }
-
-    files.forEach(file => {
-      const parts = file.path.split('/')
-      let currentNode = root
-
-      // Build folder structure
-      for (let i = 0; i < parts.length - 1; i++) {
-        const folderName = parts[i]
-        const folderPath = parts.slice(0, i + 1).join('/')
-
-        let folder = currentNode.children.find(
-          child => child.type === 'folder' && child.name === folderName
-        )
-
-        if (!folder) {
-          folder = {
-            name: folderName,
-            path: folderPath,
-            type: 'folder',
-            children: []
-          }
-          currentNode.children.push(folder)
-        }
-
-        currentNode = folder
-      }
-
-      // Add file
-      currentNode.children.push({
-        name: parts[parts.length - 1],
-        path: file.path,
-        type: 'file',
-        children: [],
-        file
-      })
-    })
-
-    // Sort folders first, then files
-    const sortNodes = (node: TreeNode): void => {
-      node.children.sort((a, b) => {
-        if (a.type === b.type) {
-          return a.name.localeCompare(b.name)
-        }
-        return a.type === 'folder' ? -1 : 1
-      })
-      node.children.forEach(child => {
-        if (child.type === 'folder') {
-          sortNodes(child)
-        }
-      })
-    }
-
-    sortNodes(root)
-    return root
-  }
-
   if (viewMode === 'tree') {
-    const tree = buildTree()
-
     const renderTreeNode = (node: TreeNode, depth = 0): React.ReactElement | null => {
       if (node.type === 'file' && node.file) {
         const file = node.file
@@ -119,13 +137,7 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
             type="button"
             onClick={() => { handleFileClick(file); }}
             aria-current={selectedFile?.path === node.file.path ? 'true' : undefined}
-            className={`w-full text-left bg-transparent border-none flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13px] break-all transition-colors
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]
-              ${selectedFile?.path === node.file.path
-                ? 'bg-[rgba(54,158,255,0.1)] dark:bg-[rgba(177,186,196,0.12)] border-l-[3px] border-l-[#2188ff] dark:border-l-[#f78166] -ml-[3px] pl-[calc(0.5rem-3px)]'
-                : 'hover:bg-[#f0f3f6] dark:hover:bg-[rgba(255,255,255,0.05)]'
-              }`}
-            style={{ paddingLeft: `${String(depth * 20 + 8)}px` }}
+            className={`${itemClass(selectedFile?.path === node.file.path)} ${indentClass(depth)}`}
           >
             <span className="flex-1 min-w-0">{node.name}</span>
             <span className="flex items-center gap-1.5 text-xs flex-shrink-0">
@@ -145,12 +157,12 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
               type="button"
               aria-expanded={!isCollapsed}
               aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} folder ${node.name}`}
-              className="w-full text-left bg-transparent border-none flex items-center px-2 py-1 rounded-[3px] cursor-pointer select-none hover:bg-[rgba(0,0,0,0.05)] dark:hover:bg-[rgba(255,255,255,0.05)]
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]"
+              className={`w-full text-left bg-transparent border border-transparent flex items-center pr-2 py-1 rounded-[3px] cursor-pointer select-none text-[#24292e] dark:text-[#c9d1d9] hover:bg-[rgba(0,0,0,0.05)] dark:hover:bg-[rgba(255,255,255,0.05)]
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]
+                ${indentClass(depth)}`}
               onClick={() => {
                 onToggleFolderCollapse(node.path)
               }}
-              style={{ paddingLeft: `${String(depth * 20 + 8)}px` }}
             >
               <span className="mr-1.5 text-[#586069] dark:text-[#8b949e] inline-flex items-center w-3">
                 {isCollapsed
@@ -159,9 +171,7 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
               </span>
               <span className="font-medium text-sm">{node.name}</span>
             </button>
-            <div style={{ display: isCollapsed ? 'none' : 'block' }}>
-              {node.children.map(child => renderTreeNode(child, depth + 1))}
-            </div>
+            {!isCollapsed && node.children.map(child => renderTreeNode(child, depth + 1))}
           </div>
         )
       }
@@ -184,12 +194,7 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
           type="button"
           onClick={() => { handleFileClick(file); }}
           aria-current={selectedFile?.path === file.path ? 'true' : undefined}
-          className={`w-full text-left bg-transparent border-none flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13px] break-all transition-colors
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]
-            ${selectedFile?.path === file.path
-              ? 'bg-[rgba(54,158,255,0.1)] dark:bg-[rgba(177,186,196,0.12)] border-l-[3px] border-l-[#2188ff] dark:border-l-[#f78166] -ml-[3px] pl-[calc(0.5rem-3px)]'
-              : 'hover:bg-[#f0f3f6] dark:hover:bg-[rgba(255,255,255,0.05)]'
-            }`}
+          className={itemClass(selectedFile?.path === file.path)}
         >
           <span className="flex-1 min-w-0">{file.path}</span>
           <span className="flex items-center gap-1.5 text-xs flex-shrink-0">

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { IconSun, IconMoon } from './icons'
 
-export default function DarkModeToggle(): React.ReactElement {
+export default function DarkModeToggle({ compact = false }: { compact?: boolean }): React.ReactElement {
   const [isDark, setIsDark] = useState(false)
 
   useEffect(() => {
@@ -34,15 +34,15 @@ export default function DarkModeToggle(): React.ReactElement {
   return (
     <Button
       variant="outline"
-      size="icon"
+      size={compact ? 'iconSm' : 'icon'}
       onClick={toggleDarkMode}
       aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
       aria-pressed={isDark}
       title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
     >
       {isDark
-        ? <IconMoon aria-hidden="true" className="w-4 h-4" />
-        : <IconSun aria-hidden="true" className="w-4 h-4" />}
+        ? <IconMoon aria-hidden="true" className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+        : <IconSun aria-hidden="true" className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />}
     </Button>
   )
 }

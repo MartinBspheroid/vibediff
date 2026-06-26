@@ -11,7 +11,12 @@ type Format = 'text' | 'json'
  * into an AI assistant or tooling. Hidden when there are no comments. Feedback is
  * surfaced as a toast rather than mutating the button label.
  */
-export default function CopyReviewButton({ comments }: { comments: Comment[] }): React.ReactElement | null {
+interface CopyReviewButtonProps {
+  comments: Comment[]
+  compact?: boolean
+}
+
+export default function CopyReviewButton({ comments, compact = false }: CopyReviewButtonProps): React.ReactElement | null {
   if (comments.length === 0) return null
 
   const copy = async (format: Format): Promise<void> => {
@@ -29,14 +34,16 @@ export default function CopyReviewButton({ comments }: { comments: Comment[] }):
     <div className="flex">
       <Button
         variant="outline"
+        size={compact ? 'xs' : 'default'}
         onClick={() => { void copy('text'); }}
         aria-label="Copy review comments as text"
         className="rounded-r-none focus-visible:z-10"
       >
-        Copy review ({comments.length})
+        {compact ? `Copy (${String(comments.length)})` : `Copy review (${String(comments.length)})`}
       </Button>
       <Button
         variant="outline"
+        size={compact ? 'xs' : 'default'}
         onClick={() => { void copy('json'); }}
         aria-label="Copy review comments as JSON"
         className="rounded-l-none -ml-px focus-visible:z-10"

@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import type { DiffLine as DiffLineType } from '../types/diff'
-import { getLanguageFromFilename, highlightCode } from '../utils/prism'
+import { ensureLanguageLoaded, getLanguageFromFilename, hasLanguageLoaded, highlightCode } from '../utils/prism'
 import { wrapRanges, type Range } from '../utils/wordDiff'
 
 interface DiffLineProps {
@@ -76,23 +76,41 @@ const DiffLine = React.memo(({
   const lineLabel = String(line.newLineNumber ?? line.newNumber ?? line.oldLineNumber ?? line.oldNumber ?? '')
   const handleMouseEnter = onMouseEnter ? () => { onMouseEnter(lineNumber); } : undefined
   const handleDragStart = onDragStart ? () => { onDragStart(lineNumber); } : undefined
+  const language = useMemo(() => getLanguageFromFilename(filename), [filename])
+  const [languageVersion, setLanguageVersion] = useState(0)
+  const languageReady = hasLanguageLoaded(language) || languageVersion > 0
+
+  useEffect(() => {
+    if (hasLanguageLoaded(language)) return
+
+    const loadState = { cancelled: false }
+    void (async () => {
+      await ensureLanguageLoaded(language)
+      if (!loadState.cancelled) {
+        setLanguageVersion((version) => version + 1)
+      }
+    })()
+
+    return () => {
+      loadState.cancelled = true
+    }
+  }, [language])
 
   // Highlight the code content
   const highlightedContent = useMemo(() => {
-    const language = getLanguageFromFilename(filename)
     // If content is empty, return empty string
     if (!line.content) {
       return ''
     }
     // Always highlight to preserve formatting
-    const html = highlightCode(line.content, language)
+    const html = highlightCode(line.content, languageReady ? language : 'plaintext')
     // Overlay intra-line word highlights (if any) on top of the syntax markup.
     if (intralineRanges && intralineRanges.length > 0) {
       const cls = isDeletion ? 'diff-word-del' : 'diff-word-add'
       return wrapRanges(html, intralineRanges, cls)
     }
     return html
-  }, [line.content, filename, intralineRanges, isDeletion])
+  }, [line.content, language, languageReady, intralineRanges, isDeletion])
 
   // Shown when git reported "\ No newline at end of file" for this line, so a
   // trailing-newline-only change reads clearly instead of looking like an
@@ -124,7 +142,7 @@ const DiffLine = React.memo(({
 
         {/* Code Line */}
         <td className={`line-code px-[10px] py-0 relative w-full ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'} ${config.codeClass}`} data-prefix={config.prefix}>
-          <code className={`language-${getLanguageFromFilename(filename)}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
+          <code className={`language-${language}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
             {noNewlineMarker}
 
           <AddCommentButton onDragStart={handleDragStart} lineLabel={lineLabel} />
@@ -142,7 +160,7 @@ const DiffLine = React.memo(({
             {line.oldLineNumber ?? line.oldNumber ?? ''}
           </td>
           <td className={`line-code px-[10px] py-0 relative border-r-2 border-r-[#e1e4e8] dark:border-r-[#30363d] ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'} ${config.codeClass} ${isInSelection ? 'line-selected' : ''} ${isInCommentRange ? 'line-commented-range' : ''}`} data-prefix={config.prefix} onMouseEnter={handleMouseEnter}>
-            <code className={`language-${getLanguageFromFilename(filename)}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
+            <code className={`language-${language}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
             {noNewlineMarker}
             <AddCommentButton onDragStart={handleDragStart} lineLabel={lineLabel} />
           </td>
@@ -153,7 +171,7 @@ const DiffLine = React.memo(({
             {line.newLineNumber ?? line.newNumber ?? ''}
           </td>
           <td className={`line-code px-[10px] py-0 relative ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'} ${config.codeClass} ${isInSelection ? 'line-selected' : ''} ${isInCommentRange ? 'line-commented-range' : ''}`} data-prefix={config.prefix} onMouseEnter={handleMouseEnter}>
-            <code className={`language-${getLanguageFromFilename(filename)}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
+            <code className={`language-${language}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
             {noNewlineMarker}
             <AddCommentButton onDragStart={handleDragStart} lineLabel={lineLabel} />
           </td>
