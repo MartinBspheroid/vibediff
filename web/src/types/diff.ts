@@ -29,6 +29,8 @@ export interface DiffLine {
   oldNumber?: number
   newNumber?: number
   content: string
+  /** True when git marked this line "\ No newline at end of file". */
+  noNewline?: boolean
 }
 
 export interface DiffResult {

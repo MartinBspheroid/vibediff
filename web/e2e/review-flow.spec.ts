@@ -6,10 +6,36 @@ test('renders a diff for a file with a non-ASCII name', async ({ page, unicodeUR
   await expect(page.getByText('CHANGED', { exact: false }).first()).toBeVisible()
 })
 
-test('shows a binary-file message for an untracked binary file', async ({ page, binaryURL }) => {
+test('shows a binary-file message for a non-image binary file', async ({ page, binaryURL }) => {
   await page.goto(binaryURL)
-  await expect(page.getByText('logo.png').first()).toBeVisible()
+  await expect(page.getByText('data.bin').first()).toBeVisible()
   await expect(page.getByText(/Binary file/).first()).toBeVisible()
+})
+
+test('defers a very large diff behind a "Show diff anyway" button', async ({ page, largeDiffURL }) => {
+  await page.goto(largeDiffURL)
+  await expect(page.getByText('big.txt').first()).toBeVisible()
+
+  // The diff is not rendered initially; a placeholder + button stand in.
+  await expect(page.getByText(/Large diff — 1700 lines/)).toBeVisible()
+  await expect(page.getByText('row 0001', { exact: true })).toHaveCount(0)
+
+  // Opting in renders the content.
+  await page.getByRole('button', { name: 'Show diff anyway' }).click()
+  await expect(page.getByText('row 0001', { exact: true })).toBeVisible()
+})
+
+test('previews an image file instead of a "content not shown" message', async ({ page, imageURL }) => {
+  await page.goto(imageURL)
+  await expect(page.getByText('pixel.png').first()).toBeVisible()
+  // The added image renders as an <img> served from the blob endpoint…
+  const img = page.getByRole('img', { name: /New version of pixel\.png/ })
+  await expect(img).toBeVisible()
+  await expect(img).toHaveAttribute('src', /\/api\/blob\/pixel\.png\?side=new/)
+  // …its real pixel dimensions are shown once it loads (the fixture is 1×1)…
+  await expect(page.getByText('1 × 1')).toBeVisible()
+  // …and the generic binary message is not used for it.
+  await expect(page.getByText(/Binary file/)).toHaveCount(0)
 })
 
 test('renders an untracked text file without a spurious trailing blank line', async ({ page, newFileURL }) => {
@@ -80,6 +106,140 @@ test('switches diff type to Staged (no staged changes in fixture)', async ({ pag
   // Nothing is staged in the fixture, so the empty state appears.
   await expect(page.getByText('No changes to display')).toBeVisible()
   await expect(page.getByText(/working tree is clean/i)).toBeVisible()
+})
+
+test('j/k navigation scrolls the selected file into view in All Files mode', async ({ page, multiFileURL }) => {
+  await page.goto(multiFileURL)
+  await expect(page.getByText('a_long.txt').first()).toBeVisible()
+  await page.getByRole('button', { name: 'All Files', exact: true }).click()
+
+  // The long first file pushes the second file below the fold.
+  const shortHeader = page.locator('[id="file-z_short.txt"] > div').first()
+  await expect(shortHeader).not.toBeInViewport()
+
+  // Pressing "j" selects the next file and scrolls it into view.
+  await page.keyboard.press('j')
+  await expect(shortHeader).toBeInViewport()
+})
+
+test('marks a line that has no trailing newline', async ({ page, noNewlineURL }) => {
+  await page.goto(noNewlineURL)
+  await expect(page.getByText('tail.txt').first()).toBeVisible()
+  // git's "\ No newline at end of file" surfaces as a visible marker rather than
+  // being dropped (which would make the change look like an identical line
+  // deleted and re-added).
+  await expect(page.getByTitle('No newline at end of file').first()).toBeVisible()
+})
+
+test('a pure rename shows the new path and a "no content changes" note', async ({ page, renameURL }) => {
+  await page.goto(renameURL)
+  await expect(page.getByText('new.txt').first()).toBeVisible()
+  await expect(page.getByText(/renamed from old\.txt/)).toBeVisible()
+  await expect(page.getByText(/No content changes \(renamed\)/)).toBeVisible()
+})
+
+test('split view aligns consecutive deletions and additions side-by-side', async ({ page, multiChangeURL }) => {
+  await page.goto(multiChangeURL)
+  await expect(page.getByText('pair.txt').first()).toBeVisible()
+
+  await page.getByRole('button', { name: 'Split', exact: true }).click()
+
+  // Both changed lines should pair into their own row (deletion cell on the left,
+  // addition cell on the right) — two such rows, not one.
+  const pairedRows = page
+    .locator('tr.group')
+    .filter({ has: page.locator('.line-code-deletion') })
+    .filter({ has: page.locator('.line-code-addition') })
+  await expect(pairedRows).toHaveCount(2)
+})
+
+test('a failed diff refetch keeps the last diff and shows a toast', async ({ page, appURL }) => {
+  await page.goto(appURL)
+  await expect(page.getByText('hello.txt').first()).toBeVisible()
+
+  // Make subsequent diff-list fetches fail (only the list endpoint, via the
+  // trailing "?"; file-diff and comment endpoints are untouched).
+  await page.route(/\/api\/diff\?/, (route) => route.abort())
+
+  // Trigger a refetch by toggling a diff-affecting option.
+  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByRole('menuitemcheckbox', { name: 'Ignore whitespace' }).click()
+
+  // The error is surfaced as a toast, and the previous diff stays on screen
+  // (not replaced by a full-screen error).
+  await expect(page.getByText(/Couldn't refresh the diff/i)).toBeVisible()
+  await expect(page.getByText('hello.txt').first()).toBeVisible()
+})
+
+test('View options menu toggles line wrapping', async ({ page, appURL }) => {
+  await page.goto(appURL)
+  await expect(page.getByText('hello.txt').first()).toBeVisible()
+
+  await page.getByRole('button', { name: 'View options' }).click()
+  const wrap = page.getByRole('menuitemcheckbox', { name: 'Wrap lines' })
+  await expect(wrap).toHaveAttribute('aria-checked', 'false')
+  await wrap.click()
+  // Menu stays open and the item reflects the new state.
+  await expect(wrap).toHaveAttribute('aria-checked', 'true')
+  // The diff code cells switch to wrapping mode.
+  await expect(page.locator('td.line-code').first()).toHaveClass(/whitespace-pre-wrap/)
+})
+
+test('context-lines selector reveals more surrounding lines', async ({ page, tallURL }) => {
+  await page.goto(tallURL)
+  await expect(page.getByText('long.txt').first()).toBeVisible()
+
+  // The change is near the top; with the default 3 lines of context, a far line
+  // is outside the hunk and not rendered.
+  await expect(page.getByText('line 50', { exact: true })).toHaveCount(0)
+
+  // Switching to full-file context (via the View options menu) re-fetches and
+  // renders the whole file.
+  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByRole('menuitemradio', { name: 'Full file' }).click()
+  await expect(page.getByText('line 50', { exact: true })).toBeVisible()
+})
+
+test('"Ignore whitespace" hides a whitespace-only change', async ({ page, whitespaceURL }) => {
+  await page.goto(whitespaceURL)
+  // By default the re-indented file shows as a change.
+  await expect(page.getByText('indent.txt').first()).toBeVisible()
+
+  // Toggling "Ignore whitespace" (in the View options menu) re-diffs with -w;
+  // the file drops out entirely. The menu stays open across toggles.
+  await page.getByRole('button', { name: 'View options' }).click()
+  await page.getByRole('menuitemcheckbox', { name: 'Ignore whitespace' }).click()
+  await expect(page.getByText('No changes to display')).toBeVisible()
+  await expect(page.getByText('indent.txt')).toHaveCount(0)
+
+  // Toggling back restores it.
+  await page.getByRole('menuitemcheckbox', { name: 'Ignore whitespace' }).click()
+  await expect(page.getByText('indent.txt').first()).toBeVisible()
+})
+
+test('file header stays pinned while scrolling a long diff', async ({ page, tallURL }) => {
+  await page.goto(tallURL)
+  await expect(page.getByText('long.txt').first()).toBeVisible()
+
+  // The scrollable main content region (flex-1, distinct from the sidebar).
+  const scroller = page.locator('div.flex-1.overflow-y-auto')
+  const header = page.locator('[id="file-long.txt"] > div').first()
+
+  const before = await header.boundingBox()
+  await scroller.evaluate((el) => { el.scrollTop = 600 })
+  // Let sticky positioning settle.
+  await page.waitForTimeout(50)
+  const after = await header.boundingBox()
+
+  // The header must remain visible and near the top of the viewport (pinned),
+  // not scrolled away with the diff body.
+  expect(before).not.toBeNull()
+  expect(after).not.toBeNull()
+  if (before && after) {
+    expect(after.y).toBeLessThanOrEqual(before.y + 5)
+    expect(after.y).toBeGreaterThanOrEqual(0)
+  }
+  await expect(page.getByText('long.txt').first()).toBeInViewport()
 })
 
 test('target selector lists grouped branches and tags', async ({ page, appURL }) => {
@@ -321,8 +481,8 @@ test('adds a review comment and persists it to the API', async ({ page, appURL }
   expect(comments.some((c) => c.content === 'Please rename this variable')).toBeTruthy()
 })
 
-test('keeps the comment and shows an error when saving fails', async ({ page, server }) => {
-  await page.goto(server.url)
+test('keeps the comment and shows an error when saving fails', async ({ page, appURL }) => {
+  await page.goto(appURL)
   await expect(page.getByText('hello.txt').first()).toBeVisible()
 
   const addButton = page.getByRole('button', { name: /Add review comment/ }).first()
@@ -330,8 +490,12 @@ test('keeps the comment and shows an error when saving fails', async ({ page, se
   await addButton.click({ force: true })
   await page.getByPlaceholder('Leave a comment').fill('important note')
 
-  // Kill the server so the save request fails.
-  server.stop()
+  // Fail the POST deterministically (more reliable than killing the server,
+  // which races OS port-close timing and tears down the WebSocket).
+  await page.route('**/api/review/comment', async (route) => {
+    if (route.request().method() === 'POST') { await route.abort(); return }
+    await route.continue()
+  })
   await page.getByRole('button', { name: 'Comment', exact: true }).click()
 
   // The dialog stays open, shows an error, and preserves the typed content.
@@ -365,11 +529,11 @@ test('edits an existing review comment', async ({ page, appURL }) => {
   expect(comments.some((c) => c.content === 'edited note')).toBeTruthy()
 })
 
-test('keeps the edit and shows an error when saving the edit fails', async ({ page, server }) => {
-  await page.goto(server.url)
+test('keeps the edit and shows an error when saving the edit fails', async ({ page, appURL }) => {
+  await page.goto(appURL)
   await expect(page.getByText('hello.txt').first()).toBeVisible()
 
-  // Add a comment while the server is up.
+  // Add a comment successfully.
   const addButton = page.getByRole('button', { name: /Add review comment/ }).first()
   await addButton.scrollIntoViewIfNeeded()
   await addButton.click({ force: true })
@@ -377,11 +541,15 @@ test('keeps the edit and shows an error when saving the edit fails', async ({ pa
   await page.getByRole('button', { name: 'Comment', exact: true }).click()
   await expect(page.getByText('first version')).toBeVisible()
 
-  // Start editing, then kill the server before saving.
   await page.getByRole('button', { name: /Edit comment/ }).first().click()
   const editor = page.getByRole('textbox', { name: /Edit comment/ })
   await editor.fill('edited version')
-  server.stop()
+
+  // Fail only the PUT (the edit) deterministically.
+  await page.route('**/api/review/comment/*', async (route) => {
+    if (route.request().method() === 'PUT') { await route.abort(); return }
+    await route.continue()
+  })
   await page.getByRole('button', { name: 'Save', exact: true }).click()
 
   // The editor stays open with the draft, and an error is shown.
@@ -389,8 +557,8 @@ test('keeps the edit and shows an error when saving the edit fails', async ({ pa
   await expect(editor).toHaveValue('edited version')
 })
 
-test('keeps the comment and shows an error when deleting fails', async ({ page, server }) => {
-  await page.goto(server.url)
+test('keeps the comment and shows an error when deleting fails', async ({ page, appURL }) => {
+  await page.goto(appURL)
   await expect(page.getByText('hello.txt').first()).toBeVisible()
 
   const addButton = page.getByRole('button', { name: /Add review comment/ }).first()
@@ -400,8 +568,11 @@ test('keeps the comment and shows an error when deleting fails', async ({ page, 
   await page.getByRole('button', { name: 'Comment', exact: true }).click()
   await expect(page.getByText('to delete')).toBeVisible()
 
-  // Kill the server, then try to delete.
-  server.stop()
+  // Fail only the DELETE deterministically.
+  await page.route('**/api/review/comment/*', async (route) => {
+    if (route.request().method() === 'DELETE') { await route.abort(); return }
+    await route.continue()
+  })
   await page.getByRole('button', { name: /Delete comment/ }).first().click()
 
   await expect(page.getByRole('alert')).toContainText(/could not delete/i)

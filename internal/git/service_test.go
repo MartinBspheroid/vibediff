@@ -1,9 +1,11 @@
 package git
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -51,6 +53,78 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+	}
+}
+
+func TestService_GetDiff_IgnoreWhitespace(t *testing.T) {
+	dir := newTestRepo(t)
+	writeFile(t, dir, "code.txt", "alpha\nbeta\n")
+	gitIn(t, dir, "add", ".")
+	gitIn(t, dir, "commit", "-m", "init")
+	// Re-indent only: a whitespace-only change (leading spaces + trailing space).
+	writeFile(t, dir, "code.txt", "  alpha \n  beta \n")
+
+	s := NewService()
+
+	// Without ignore-whitespace, the file shows as changed.
+	res, err := s.GetDiffForTarget("", DiffTypeAll, false)
+	if err != nil {
+		t.Fatalf("GetDiff (ws kept): %v", err)
+	}
+	if len(res.Files) != 1 {
+		t.Fatalf("expected 1 changed file with whitespace kept, got %d", len(res.Files))
+	}
+
+	// With ignore-whitespace (-w), a whitespace-only change disappears.
+	res, err = s.GetDiffForTarget("", DiffTypeAll, true)
+	if err != nil {
+		t.Fatalf("GetDiff (ws ignored): %v", err)
+	}
+	if len(res.Files) != 0 {
+		t.Fatalf("expected 0 changed files with whitespace ignored, got %d", len(res.Files))
+	}
+}
+
+func TestService_GetDiff_ContextLines(t *testing.T) {
+	dir := newTestRepo(t)
+	var lines string
+	for i := 1; i <= 20; i++ {
+		lines += fmt.Sprintf("line %02d\n", i)
+	}
+	writeFile(t, dir, "code.txt", lines)
+	gitIn(t, dir, "add", ".")
+	gitIn(t, dir, "commit", "-m", "init")
+	// Change a single line in the middle.
+	writeFile(t, dir, "code.txt", strings.Replace(lines, "line 10\n", "line 10 CHANGED\n", 1))
+
+	s := NewService()
+
+	countLines := func(res *DiffResult) int {
+		n := 0
+		for _, f := range res.Files {
+			for _, h := range f.Hunks {
+				n += len(h.Lines)
+			}
+		}
+		return n
+	}
+
+	// Default context (3) shows only a small window around the change.
+	narrow, err := s.GetDiffForTarget("", DiffTypeAll, false, 3)
+	if err != nil {
+		t.Fatalf("GetDiff (context 3): %v", err)
+	}
+	// Full context shows the whole 20-line file plus the added line.
+	wide, err := s.GetDiffForTarget("", DiffTypeAll, false, 999999)
+	if err != nil {
+		t.Fatalf("GetDiff (full context): %v", err)
+	}
+
+	if countLines(narrow) >= countLines(wide) {
+		t.Fatalf("expected more lines with full context: narrow=%d wide=%d", countLines(narrow), countLines(wide))
+	}
+	if countLines(wide) < 20 {
+		t.Fatalf("expected full context to include the whole file (>=20 lines), got %d", countLines(wide))
 	}
 }
 
@@ -286,7 +360,7 @@ func TestService_GetDiffForTarget(t *testing.T) {
 
 	s := NewService()
 	// Diff the working tree against the "base" tag should show a.txt changed.
-	res, err := s.GetDiffForTarget("base", DiffTypeAll)
+	res, err := s.GetDiffForTarget("base", DiffTypeAll, false)
 	if err != nil {
 		t.Fatalf("GetDiffForTarget: %v", err)
 	}

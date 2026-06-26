@@ -37,14 +37,15 @@ func (s *Service) SetDiffTarget(target string) {
 // GetDiff retrieves the git diff using the service's configured target (set via
 // the CLI) with optional context lines (default: 3).
 func (s *Service) GetDiff(diffType DiffType, contextLines ...int) (*DiffResult, error) {
-	return s.GetDiffForTarget("", diffType, contextLines...)
+	return s.GetDiffForTarget("", diffType, false, contextLines...)
 }
 
 // GetDiffForTarget retrieves the diff against an explicit, per-request target
 // (e.g. a branch or tag selected in the UI). An empty target falls back to the
 // service's configured target, then to the staged/unstaged/all behavior. The
 // caller is responsible for validating that target is a known, safe ref.
-func (s *Service) GetDiffForTarget(target string, diffType DiffType, contextLines ...int) (*DiffResult, error) {
+// When ignoreWhitespace is true, whitespace-only changes are hidden (git -w).
+func (s *Service) GetDiffForTarget(target string, diffType DiffType, ignoreWhitespace bool, contextLines ...int) (*DiffResult, error) {
 	context := 3
 	if len(contextLines) > 0 {
 		context = contextLines[0]
@@ -84,6 +85,11 @@ func (s *Service) GetDiffForTarget(target string, diffType DiffType, contextLine
 	// Add context parameter
 	if context >= 0 {
 		args = append(args, fmt.Sprintf("-U%d", context))
+	}
+
+	// Hide whitespace-only changes when requested (common review noise filter).
+	if ignoreWhitespace {
+		args = append(args, "-w")
 	}
 
 	output, err := s.runGitCommand(args...)
@@ -179,6 +185,14 @@ func (s *Service) IsValidRef(name string) bool {
 }
 
 func (s *Service) runGitCommand(args ...string) (string, error) {
+	out, err := s.runGitCommandRaw(args...)
+	return string(out), err
+}
+
+// runGitCommandRaw is like runGitCommand but returns the raw stdout bytes,
+// untouched — needed for binary content (e.g. serving an image blob) where a
+// string round-trip or any trimming would corrupt the data.
+func (s *Service) runGitCommandRaw(args ...string) ([]byte, error) {
 	timeout := s.cmdTimeout
 	if timeout <= 0 {
 		timeout = defaultCmdTimeout
@@ -198,13 +212,33 @@ func (s *Service) runGitCommand(args ...string) (string, error) {
 
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("git command timed out after %s", timeout)
+		return nil, fmt.Errorf("git command timed out after %s", timeout)
 	}
 	if err != nil {
-		return "", fmt.Errorf("git command failed: %s", stderr.String())
+		return nil, fmt.Errorf("git command failed: %s", stderr.String())
 	}
 
-	return out.String(), nil
+	return out.Bytes(), nil
+}
+
+// GetWorkingTreeBytes reads the raw bytes of a file from the working tree, after
+// validating the path stays inside the repository.
+func (s *Service) GetWorkingTreeBytes(filePath string) ([]byte, error) {
+	safe, err := safeRepoPath(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid file path: %w", err)
+	}
+	return os.ReadFile(safe)
+}
+
+// GetBlobBytesAtHEAD reads the raw bytes of a file as of HEAD (the "before" side
+// of a diff), after validating the path.
+func (s *Service) GetBlobBytesAtHEAD(filePath string) ([]byte, error) {
+	safe, err := safeRepoPath(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid file path: %w", err)
+	}
+	return s.runGitCommandRaw("show", "HEAD:"+safe)
 }
 
 func (s *Service) parseDiff(diffOutput string) ([]FileDiff, error) {
@@ -235,13 +269,13 @@ func (s *Service) GetFileContent(filePath string) (string, error) {
 
 // GetFileDiff retrieves diff for a specific file with optional context lines.
 func (s *Service) GetFileDiff(filename string, diffType DiffType, contextLines ...int) (*FileDiff, error) {
-	return s.GetFileDiffForTarget("", filename, diffType, contextLines...)
+	return s.GetFileDiffForTarget("", filename, diffType, false, contextLines...)
 }
 
 // GetFileDiffForTarget retrieves the diff for a single file against an explicit
 // per-request target (e.g. a branch/tag selected in the UI). An empty target
 // falls back to the configured/default behavior.
-func (s *Service) GetFileDiffForTarget(target string, filename string, diffType DiffType, contextLines ...int) (*FileDiff, error) {
+func (s *Service) GetFileDiffForTarget(target string, filename string, diffType DiffType, ignoreWhitespace bool, contextLines ...int) (*FileDiff, error) {
 	context := 3
 	if len(contextLines) > 0 {
 		context = contextLines[0]
@@ -260,7 +294,7 @@ func (s *Service) GetFileDiffForTarget(target string, filename string, diffType 
 	}
 
 	// Otherwise get from regular diff
-	diff, err := s.GetDiffForTarget(target, diffType, contextLines...)
+	diff, err := s.GetDiffForTarget(target, diffType, ignoreWhitespace, contextLines...)
 	if err != nil {
 		return nil, err
 	}
@@ -276,12 +310,12 @@ func (s *Service) GetFileDiffForTarget(target string, filename string, diffType 
 
 // GetFileDiffWithFullContext is a convenience method for getting full file context.
 func (s *Service) GetFileDiffWithFullContext(filename string, diffType DiffType) (*FileDiff, error) {
-	return s.GetFileDiffForTarget("", filename, diffType, 999999)
+	return s.GetFileDiffForTarget("", filename, diffType, false, 999999)
 }
 
 // GetFileDiffWithFullContextForTarget returns full-context file diff against a target.
 func (s *Service) GetFileDiffWithFullContextForTarget(target string, filename string, diffType DiffType) (*FileDiff, error) {
-	return s.GetFileDiffForTarget(target, filename, diffType, 999999)
+	return s.GetFileDiffForTarget(target, filename, diffType, false, 999999)
 }
 
 // isBinaryContent reports whether data looks binary, using git's heuristic:

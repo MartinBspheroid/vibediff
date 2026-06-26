@@ -22,6 +22,30 @@ describe('DiffLine', () => {
     expect(screen.getByRole('button', { name: /Add review comment on line 5/ })).toBeInTheDocument()
   })
 
+  it('shows a "no newline" marker when the line lacks a trailing newline', () => {
+    const line: DiffLineType = { type: 'delete', oldLineNumber: 2, content: 'bravo', noNewline: true }
+    render(
+      <table>
+        <tbody>
+          <DiffLine line={line} lineNumber={-2} viewMode="unified" filename={FILENAME} />
+        </tbody>
+      </table>
+    )
+    expect(screen.getByTitle('No newline at end of file')).toBeInTheDocument()
+  })
+
+  it('omits the "no newline" marker for a normal line', () => {
+    const line: DiffLineType = { type: 'add', newLineNumber: 2, content: 'bravo' }
+    render(
+      <table>
+        <tbody>
+          <DiffLine line={line} lineNumber={2} viewMode="unified" filename={FILENAME} />
+        </tbody>
+      </table>
+    )
+    expect(screen.queryByTitle('No newline at end of file')).toBeNull()
+  })
+
   it('calls onDragStart with the line number when the comment button is used', () => {
     const onDragStart = vi.fn()
     const line: DiffLineType = { type: 'add', newLineNumber: 7, content: 'x' }

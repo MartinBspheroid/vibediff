@@ -8,7 +8,7 @@ interface UseDiffReturn {
   refetch: () => void
 }
 
-export function useDiff(type: DiffType = 'all', target = ''): UseDiffReturn {
+export function useDiff(type: DiffType = 'all', target = '', ignoreWhitespace = false, contextLines = 3): UseDiffReturn {
   const [data, setData] = useState<DiffResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -32,6 +32,13 @@ export function useDiff(type: DiffType = 'all', target = ''): UseDiffReturn {
       if (target) {
         params.set('target', target)
       }
+      if (ignoreWhitespace) {
+        params.set('w', '1')
+      }
+      // Only send a non-default context to keep request URLs clean.
+      if (contextLines !== 3) {
+        params.set('context', String(contextLines))
+      }
       const response = await fetch(`/api/diff?${params.toString()}`, { signal: ac.signal })
       if (!response.ok) {
         throw new Error('Failed to fetch diff')
@@ -53,7 +60,7 @@ export function useDiff(type: DiffType = 'all', target = ''): UseDiffReturn {
         setLoading(false)
       }
     }
-  }, [type, target])
+  }, [type, target, ignoreWhitespace, contextLines])
 
   // Initial fetch
   useEffect(() => {

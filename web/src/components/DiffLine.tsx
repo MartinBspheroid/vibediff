@@ -94,6 +94,18 @@ const DiffLine = React.memo(({
     return html
   }, [line.content, filename, intralineRanges, isDeletion])
 
+  // Shown when git reported "\ No newline at end of file" for this line, so a
+  // trailing-newline-only change reads clearly instead of looking like an
+  // identical line deleted and re-added.
+  const noNewlineMarker = line.noNewline ? (
+    <span
+      title="No newline at end of file"
+      className="ml-2 select-none align-middle rounded border border-[#cf222e]/40 px-1 text-[10px] font-sans not-italic text-[#cf222e] dark:border-[#f85149]/40 dark:text-[#f85149]"
+    >
+      no newline
+    </span>
+  ) : null
+
   if (viewMode === 'unified') {
     return (
       <tr
@@ -113,6 +125,7 @@ const DiffLine = React.memo(({
         {/* Code Line */}
         <td className={`line-code px-[10px] py-0 relative w-full ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'} ${config.codeClass}`} data-prefix={config.prefix}>
           <code className={`language-${getLanguageFromFilename(filename)}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
+            {noNewlineMarker}
 
           <AddCommentButton onDragStart={handleDragStart} lineLabel={lineLabel} />
         </td>
@@ -130,6 +143,7 @@ const DiffLine = React.memo(({
           </td>
           <td className={`line-code px-[10px] py-0 relative border-r-2 border-r-[#e1e4e8] dark:border-r-[#30363d] ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'} ${config.codeClass} ${isInSelection ? 'line-selected' : ''} ${isInCommentRange ? 'line-commented-range' : ''}`} data-prefix={config.prefix} onMouseEnter={handleMouseEnter}>
             <code className={`language-${getLanguageFromFilename(filename)}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
+            {noNewlineMarker}
             <AddCommentButton onDragStart={handleDragStart} lineLabel={lineLabel} />
           </td>
         </>
@@ -140,6 +154,7 @@ const DiffLine = React.memo(({
           </td>
           <td className={`line-code px-[10px] py-0 relative ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'} ${config.codeClass} ${isInSelection ? 'line-selected' : ''} ${isInCommentRange ? 'line-commented-range' : ''}`} data-prefix={config.prefix} onMouseEnter={handleMouseEnter}>
             <code className={`language-${getLanguageFromFilename(filename)}`} dangerouslySetInnerHTML={{ __html: highlightedContent }} />
+            {noNewlineMarker}
             <AddCommentButton onDragStart={handleDragStart} lineLabel={lineLabel} />
           </td>
         </>

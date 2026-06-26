@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -13,6 +14,27 @@ import (
 	"github.com/malvex/vibediff/internal/git"
 	"github.com/malvex/vibediff/internal/review"
 )
+
+// maxContextLines bounds the user-supplied context so a huge value can't force
+// git to render an enormous diff. 100k lines comfortably covers "whole file".
+const maxContextLines = 100000
+
+// parseContextLines reads the optional ?context=N query param, defaulting to git's
+// standard 3 and clamping to a safe range.
+func parseContextLines(r *http.Request) int {
+	raw := r.URL.Query().Get("context")
+	if raw == "" {
+		return 3
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 3
+	}
+	if n > maxContextLines {
+		return maxContextLines
+	}
+	return n
+}
 
 // absInt returns the absolute value of an int.
 func absInt(n int) int {
@@ -82,7 +104,10 @@ func (h *Handler) GetDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	diff, err := h.gitService.GetDiffForTarget(target, diffType)
+	ignoreWhitespace := r.URL.Query().Get("w") == "1"
+	context := parseContextLines(r)
+
+	diff, err := h.gitService.GetDiffForTarget(target, diffType, ignoreWhitespace, context)
 	if err != nil {
 		log.Printf("get diff: %v", err)
 		http.Error(w, "failed to get diff", http.StatusInternalServerError)
@@ -131,7 +156,9 @@ func (h *Handler) GetFileDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	diff, err := h.gitService.GetFileDiffForTarget(target, filename, diffType)
+	ignoreWhitespace := r.URL.Query().Get("w") == "1"
+
+	diff, err := h.gitService.GetFileDiffForTarget(target, filename, diffType, ignoreWhitespace)
 	if err != nil {
 		log.Printf("get file diff %q: %v", filename, err)
 		http.Error(w, "failed to get file diff", http.StatusInternalServerError)
@@ -280,5 +307,69 @@ func (h *Handler) GetFileContent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	if _, err := w.Write([]byte(content)); err != nil {
 		log.Printf("Failed to write file content: %v", err)
+	}
+}
+
+// imageContentTypes maps the image extensions we'll preview to their MIME type.
+// Restricting the blob endpoint to these keeps it from acting as a general file
+// server for arbitrary repo content.
+var imageContentTypes = map[string]string{
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".bmp":  "image/bmp",
+	".ico":  "image/x-icon",
+	".svg":  "image/svg+xml",
+}
+
+func imageContentType(filename string) string {
+	lower := strings.ToLower(filename)
+	for ext, ct := range imageContentTypes {
+		if strings.HasSuffix(lower, ext) {
+			return ct
+		}
+	}
+	return ""
+}
+
+// GetBlob serves the raw bytes of an image file, either from the working tree
+// (?side=new, default) or as of HEAD (?side=old), so the UI can preview image
+// diffs. Limited to known image extensions; the path is validated against the
+// repo root inside the service. A restrictive CSP/nosniff guards the
+// direct-navigation case (e.g. a scripted SVG).
+func (h *Handler) GetBlob(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	filename, err := url.QueryUnescape(vars["file"])
+	if err != nil {
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
+
+	ct := imageContentType(filename)
+	if ct == "" {
+		http.Error(w, "unsupported file type", http.StatusNotFound)
+		return
+	}
+
+	var data []byte
+	if r.URL.Query().Get("side") == "old" {
+		data, err = h.gitService.GetBlobBytesAtHEAD(filename)
+	} else {
+		data, err = h.gitService.GetWorkingTreeBytes(filename)
+	}
+	if err != nil {
+		log.Printf("get blob %q: %v", filename, err)
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	if _, err := w.Write(data); err != nil {
+		log.Printf("write blob: %v", err)
 	}
 }

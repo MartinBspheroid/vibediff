@@ -41,6 +41,9 @@ type Line struct {
 	OldNumber *int     `json:"oldNumber,omitempty"`
 	NewNumber *int     `json:"newNumber,omitempty"`
 	Content   string   `json:"content"`
+	// NoNewline marks a line git annotated with "\ No newline at end of file"
+	// — i.e. this side of the diff has no trailing newline.
+	NoNewline bool `json:"noNewline,omitempty"`
 }
 
 type LineType string

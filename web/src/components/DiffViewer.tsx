@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { toast } from 'sonner'
 import type { DiffType, ViewMode, FileDiff as FileDiffType } from '../types/diff'
 import { filterFiles, filterByStatus, type StatusFilter } from '../utils/filterFiles'
 import { countCommentsByFile } from '../utils/commentCounts'
 import { sumDiffStats } from '../utils/diffStats'
+import { isLargeFileDiff } from '../utils/diffSize'
 import { useDiff } from '../hooks/useDiff'
 import { useComments } from '../hooks/useComments'
 import { useLocalStorage } from '../hooks/useLocalStorage'
@@ -10,12 +12,22 @@ import { useRefs } from '../hooks/useRefs'
 import { useReviewedFiles } from '../hooks/useReviewedFiles'
 import TargetSelector from './TargetSelector'
 import CopyReviewButton from './CopyReviewButton'
-import { IconList, IconTree, IconCheckCircle, IconDanger, IconKeyboard } from './icons'
+import { IconList, IconTree, IconCheckCircle, IconDanger, IconKeyboard, IconSettings } from './icons'
 import { useWebSocketUpdates } from '../contexts/WebSocketContext'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import FileList from './FileList'
 import FileDiff from './FileDiff'
 import CommentDialog from './CommentDialog'
@@ -49,13 +61,15 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
   const [fileViewMode, setFileViewMode] = useState<'list' | 'tree'>('list')
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
   const [wrapLines, setWrapLines] = useState<boolean>(false)
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState<boolean>(false)
+  const [contextLines, setContextLines] = useState<number>(3)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [target, setTarget] = useState(() => localStorage.getItem('diffTarget') ?? '')
 
   const refs = useRefs()
   const { reviewedFiles, toggleReviewed, isReviewed } = useReviewedFiles()
-  const { data, loading, error, refetch } = useDiff(diffType, target)
+  const { data, loading, error, refetch } = useDiff(diffType, target, ignoreWhitespace, contextLines)
   const { comments, error: commentsError, addComment, updateComment, deleteComment, getCommentsForLine, getCommentRangeLines } = useComments()
   const { lastUpdate, connected } = useWebSocketUpdates()
 
@@ -78,6 +92,13 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
 
   const [fileFilter, setFileFilter] = useState('')
   const fileFilterRef = useRef<HTMLInputElement>(null)
+  // Tracks the last file we auto-scrolled to, so we only scroll on actual
+  // navigation (j/k or a sidebar click) — not on every diff refetch.
+  const lastScrolledPathRef = useRef<string | null>(null)
+  // Paths we've already auto-collapsed for being large. Guards the effect so a
+  // file the reviewer manually expands isn't yanked shut again on the next
+  // refetch / live update.
+  const autoCollapsedRef = useRef<Set<string>>(new Set())
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const allFiles = useMemo(() => data?.files ?? [], [data])
   const filteredFiles = useMemo(
@@ -129,6 +150,15 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
 
     const savedWrapLines = localStorage.getItem('wrapLines')
     if (savedWrapLines !== null) setWrapLines(savedWrapLines === 'true')
+
+    const savedIgnoreWs = localStorage.getItem('ignoreWhitespace')
+    if (savedIgnoreWs !== null) setIgnoreWhitespace(savedIgnoreWs === 'true')
+
+    const savedContext = localStorage.getItem('contextLines')
+    if (savedContext !== null) {
+      const n = Number(savedContext)
+      if (Number.isFinite(n) && n >= 0) setContextLines(n)
+    }
   }, [])
 
   // Save preferences using the custom hook
@@ -138,6 +168,8 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
   useLocalStorage('sidebarView', fileViewMode)
   useLocalStorage('collapsedFolders', collapsedFolders)
   useLocalStorage('wrapLines', wrapLines)
+  useLocalStorage('ignoreWhitespace', ignoreWhitespace)
+  useLocalStorage('contextLines', contextLines)
   useLocalStorage('diffTarget', target)
 
   // Self-heal a persisted target that no longer exists (e.g. branch deleted),
@@ -163,6 +195,24 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
       }
     }
   }, [data, selectedFile])
+
+  // Collapse large files by default. A few huge (often generated) diffs would
+  // otherwise bury the files worth reading, so anything over the change
+  // threshold starts collapsed in "All Files" mode. Each path is auto-collapsed
+  // at most once (tracked in a ref), so manually expanding one keeps it open.
+  useEffect(() => {
+    if (!data) return
+    const fresh = data.files.filter(
+      (f) => !autoCollapsedRef.current.has(f.path) && isLargeFileDiff(f)
+    )
+    if (fresh.length === 0) return
+    fresh.forEach((f) => autoCollapsedRef.current.add(f.path))
+    setCollapsedFiles((prev) => {
+      const next = new Set(prev)
+      fresh.forEach((f) => next.add(f.path))
+      return next
+    })
+  }, [data])
 
   // Keyboard navigation
   useEffect(() => {
@@ -213,6 +263,28 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
     return () => { document.removeEventListener('keydown', handleKeyDown); }
   }, [data, selectedFile, showShortcuts])
 
+  // In "All Files" mode, scroll the selected file into view when it changes via
+  // navigation (j/k or a sidebar click). Guarded by a ref so a diff refetch —
+  // which produces a fresh selectedFile object for the same path — doesn't yank
+  // the scroll position.
+  useEffect(() => {
+    if (displayMode !== 'all' || !selectedFile) return
+    if (lastScrolledPathRef.current === selectedFile.path) return
+    lastScrolledPathRef.current = selectedFile.path
+    const el = document.getElementById(`file-${selectedFile.path.replace(/\//g, '-')}`)
+    if (!el) return
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    el.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
+  }, [selectedFile, displayMode])
+
+  // A failed *refetch* (we already have a diff on screen) shouldn't wipe the view;
+  // surface it as a toast and keep showing the last good diff.
+  useEffect(() => {
+    if (error && data) {
+      toast.error("Couldn't refresh the diff — showing the last loaded version.")
+    }
+  }, [error]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggleFileCollapse = (filePath: string): void => {
     setCollapsedFiles(prev => {
       const newSet = new Set(prev)
@@ -239,7 +311,10 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
     })
   }
 
-  if (loading) {
+  // Full-screen loader only on the very first load. Option changes (diff type,
+  // target, whitespace, context) keep the current diff on screen and show a
+  // subtle "Updating…" hint instead of blanking the whole UI.
+  if (loading && !data) {
     return (
       <div className={`flex justify-center items-center h-screen ${className}`}>
         <div className="text-gray-500 dark:text-gray-400">Loading diff...</div>
@@ -247,7 +322,10 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
     )
   }
 
-  if (error) {
+  // Only take over the whole screen on an initial-load error. A failed *refetch*
+  // (option change / live update) keeps the last good diff and surfaces the error
+  // as a toast (see effect below) instead of wiping the view.
+  if (error && !data) {
     return (
       <div className={`flex justify-center items-center h-screen ${className}`}>
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
@@ -261,11 +339,11 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
     <div className={`flex flex-col h-screen bg-white dark:bg-[#0d1117] ${viewMode === 'split' ? 'split-view-active' : ''}`}>
       {/* Header - GitHub style dark header */}
       <header className="bg-[#24292e] dark:bg-[#161b22] text-white border-b border-[#e1e4e8] dark:border-[#30363d]">
-        <div className="max-w-[1280px] mx-auto px-4 py-4">
+        <div className="app-container px-4 py-4">
           <div className="flex items-center justify-between flex-nowrap">
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-semibold">VibeDiff</h1>
-              {isRefreshing && (
+              {(isRefreshing || loading) && (
                 <span className="text-sm text-gray-300">Updating...</span>
               )}
               <ConnectionStatus connected={connected} />
@@ -318,10 +396,41 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
               {allVisibleCollapsed ? 'Expand All' : 'Collapse All'}
             </Button>
 
-            {/* Wrap Lines Toggle */}
-            <Button variant={wrapLines ? 'default' : 'outline'} onClick={() => { setWrapLines(!wrapLines); }} title="Toggle line wrapping">
-              Wrap Lines
-            </Button>
+            {/* Display options (wrap / whitespace / context) consolidated into a
+                single menu to keep the toolbar uncluttered. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" aria-label="View options" title="View options">
+                  <IconSettings aria-hidden="true" className="w-4 h-4" />
+                  View
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Display</DropdownMenuLabel>
+                <DropdownMenuCheckboxItem
+                  checked={wrapLines}
+                  onCheckedChange={setWrapLines}
+                  onSelect={(e) => { e.preventDefault(); }}
+                >
+                  Wrap lines
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={ignoreWhitespace}
+                  onCheckedChange={setIgnoreWhitespace}
+                  onSelect={(e) => { e.preventDefault(); }}
+                >
+                  Ignore whitespace
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Context lines</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={String(contextLines)} onValueChange={(v) => { setContextLines(Number(v)); }}>
+                  <DropdownMenuRadioItem value="3">3 lines</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="10">10 lines</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="25">25 lines</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="100000">Full file</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <CopyReviewButton comments={comments} />
 
@@ -357,7 +466,7 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
         </div>
       )}
 
-      <div className="flex max-w-[1280px] mx-auto min-h-[calc(100vh-65px)] w-full">
+      <div className="app-container flex min-h-[calc(100vh-65px)]">
         {/* Sidebar */}
         <div className="w-[260px] bg-[#fafbfc] dark:bg-[#0d1117] border-r border-[#e1e4e8] dark:border-[#30363d] p-4 overflow-y-auto">
           <div className="flex items-center justify-between mb-3">
@@ -460,15 +569,16 @@ export default function DiffViewer({ className = '' }: DiffViewerProps): React.R
         {/* Main Content */}
         <div className="flex-1 bg-white dark:bg-[#0d1117] p-4 overflow-y-auto">
         {(() => {
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-          if (loading) {
+          // Only blank the content on the initial load; during option-change
+          // refetches the previous diff stays visible (see "Updating…" hint).
+          if (loading && !data) {
             return (
               <div className="flex items-center justify-center h-full">
                 <p className="text-gray-500 dark:text-gray-400">Loading...</p>
               </div>
             )
           }
-          if (error) {
+          if (error && !data) {
             return (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
                 <IconDanger className="w-10 h-10 text-red-500" aria-hidden="true" />

@@ -6,6 +6,14 @@ import (
 	"strings"
 )
 
+// Compiled once at package load rather than per-file / per-hunk (which is what
+// regexp.MustCompile inside the parse loop would do on every call) — a large
+// diff has many files and hunks, so this avoids thousands of recompilations.
+var (
+	diffGitRe    = regexp.MustCompile(`diff --git [a-z]/(.*) [a-z]/(.*)`)
+	hunkHeaderRe = regexp.MustCompile(`@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)`)
+)
+
 type diffParser struct {
 	lines   []string
 	current int
@@ -42,7 +50,7 @@ func (p *diffParser) parseFile() *FileDiff {
 	}
 
 	diffLine := p.lines[p.current]
-	paths := regexp.MustCompile(`diff --git [a-z]/(.*) [a-z]/(.*)`).FindStringSubmatch(diffLine)
+	paths := diffGitRe.FindStringSubmatch(diffLine)
 	if len(paths) >= 3 {
 		file.OldPath = paths[1]
 		file.Path = paths[2]
@@ -60,6 +68,9 @@ func (p *diffParser) parseFile() *FileDiff {
 		case strings.HasPrefix(line, "rename from"):
 			file.Status = FileStatusRenamed
 			file.OldPath = strings.TrimPrefix(line, "rename from ")
+		case strings.HasPrefix(line, "rename to"):
+			file.Status = FileStatusRenamed
+			file.Path = strings.TrimPrefix(line, "rename to ")
 		case strings.HasPrefix(line, "Binary files"):
 			file.IsBinary = true
 		case strings.HasPrefix(line, "@@"):
@@ -91,7 +102,7 @@ func (p *diffParser) parseFile() *FileDiff {
 
 func (p *diffParser) parseHunk() *Hunk {
 	header := p.lines[p.current]
-	matches := regexp.MustCompile(`@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)`).FindStringSubmatch(header)
+	matches := hunkHeaderRe.FindStringSubmatch(header)
 	if len(matches) < 5 {
 		return nil
 	}
@@ -158,6 +169,11 @@ func (p *diffParser) parseHunk() *Hunk {
 			newLine++
 			lineObj.Content = line[1:]
 		case '\\':
+			// "\ No newline at end of file" annotates the immediately preceding
+			// diff line; flag it so the UI can show the missing-newline marker.
+			if len(hunk.Lines) > 0 {
+				hunk.Lines[len(hunk.Lines)-1].NoNewline = true
+			}
 			p.current++
 			continue
 		default:

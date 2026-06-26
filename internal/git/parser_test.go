@@ -136,6 +136,62 @@ index 1234567..89abcde 100644
 	}
 }
 
+func TestParse_PureRename(t *testing.T) {
+	// A 100%-similarity rename: status Renamed, old/new paths set, no hunks.
+	diff := `diff --git a/old/name.txt b/new/name.txt
+similarity index 100%
+rename from old/name.txt
+rename to new/name.txt
+`
+	files, _ := newDiffParser(diff).parse()
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	f := files[0]
+	if f.Status != FileStatusRenamed {
+		t.Errorf("Status = %q, want %q", f.Status, FileStatusRenamed)
+	}
+	if f.OldPath != "old/name.txt" {
+		t.Errorf("OldPath = %q, want old/name.txt", f.OldPath)
+	}
+	if f.Path != "new/name.txt" {
+		t.Errorf("Path = %q, want new/name.txt", f.Path)
+	}
+	if len(f.Hunks) != 0 {
+		t.Errorf("expected 0 hunks for a pure rename, got %d", len(f.Hunks))
+	}
+}
+
+func TestParse_NoNewlineAtEndOfFile(t *testing.T) {
+	// Adding a trailing newline: the old "bravo" carries the "\ No newline" marker.
+	diff := `diff --git a/f.txt b/f.txt
+index 9129e46..f8704fb 100644
+--- a/f.txt
++++ b/f.txt
+@@ -1,2 +1,2 @@
+ alpha
+-bravo
+\ No newline at end of file
++bravo
+`
+	files, _ := newDiffParser(diff).parse()
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	lines := files[0].Hunks[0].Lines
+	// The "\" marker line must NOT become its own diff line.
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines (context, deleted, added), got %d", len(lines))
+	}
+	// It annotates the preceding deleted line, not the added one.
+	if lines[1].Type != LineTypeDeleted || !lines[1].NoNewline {
+		t.Errorf("deleted line NoNewline = %v, want true", lines[1].NoNewline)
+	}
+	if lines[2].NoNewline {
+		t.Errorf("added line should not be flagged NoNewline")
+	}
+}
+
 func TestParse_MultipleFiles(t *testing.T) {
 	diff := `diff --git a/a.txt b/a.txt
 index 111..222 100644

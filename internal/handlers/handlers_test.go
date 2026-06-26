@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -154,6 +155,47 @@ func TestGetFileContent_ErrorIsSanitized(t *testing.T) {
 		if strings.Contains(body, leak) {
 			t.Errorf("response body leaks internal detail %q: %s", leak, body)
 		}
+	}
+}
+
+func TestGetBlob(t *testing.T) {
+	chdirTestRepo(t)
+	pngBytes := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01}
+	if err := os.WriteFile("logo.png", pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestHandler()
+
+	blobReq := func(file string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/api/blob/x", nil)
+		return mux.SetURLVars(req, map[string]string{"file": file})
+	}
+
+	// The working-tree image is served verbatim with the right content type.
+	rec := httptest.NewRecorder()
+	h.GetBlob(rec, blobReq("logo.png"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png", ct)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), pngBytes) {
+		t.Errorf("served bytes do not match the file")
+	}
+
+	// Non-image files are not served.
+	rec = httptest.NewRecorder()
+	h.GetBlob(rec, blobReq("seed.txt"))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("non-image status = %d, want 404", rec.Code)
+	}
+
+	// Path traversal is rejected even with an image extension.
+	rec = httptest.NewRecorder()
+	h.GetBlob(rec, blobReq("../../etc/passwd.png"))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("traversal status = %d, want 404", rec.Code)
 	}
 }
 

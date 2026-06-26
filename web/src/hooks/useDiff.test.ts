@@ -33,6 +33,30 @@ describe('useDiff', () => {
     expect(url).toContain('target=feature%2Fx')
   })
 
+  it('requests ignore-whitespace and a non-default context in the URL', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ files: [], type: 'all' }),
+    })
+    renderHook(() => useDiff('all', '', true, 25))
+    await waitFor(() => { expect(mockFetch).toHaveBeenCalled() })
+    const url = mockFetch.mock.calls[0][0] as string
+    expect(url).toContain('w=1')
+    expect(url).toContain('context=25')
+  })
+
+  it('omits the context param when it is the default (3)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ files: [], type: 'all' }),
+    })
+    renderHook(() => useDiff('all', '', false, 3))
+    await waitFor(() => { expect(mockFetch).toHaveBeenCalled() })
+    const url = mockFetch.mock.calls[0][0] as string
+    expect(url).not.toContain('context=')
+    expect(url).not.toContain('w=1')
+  })
+
   it('aborts the previous request when the diff type changes', async () => {
     const signals: AbortSignal[] = []
     mockFetch.mockImplementation(async (_url: string, opts: { signal: AbortSignal }) => {

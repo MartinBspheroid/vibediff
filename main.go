@@ -69,6 +69,7 @@ func newRouter(handler *handlers.Handler, wsHub *handlers.WSHub, distFS fs.FS) *
 	r.HandleFunc("/api/review/comment/{id}", handler.UpdateComment).Methods("PUT")
 	r.HandleFunc("/api/ws", handler.HandleWebSocket(wsHub)).Methods("GET")
 	r.HandleFunc("/api/file", handler.GetFileContent).Methods("GET")
+	r.HandleFunc("/api/blob/{file:.+}", handler.GetBlob).Methods("GET")
 
 	r.PathPrefix("/assets/").Handler(http.FileServer(http.FS(distFS)))
 	r.PathPrefix("/themes/").Handler(http.FileServer(http.FS(distFS)))

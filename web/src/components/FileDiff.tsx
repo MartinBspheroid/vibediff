@@ -1,11 +1,19 @@
-import React, { useMemo, useCallback, useId } from 'react'
+import React, { useMemo, useCallback, useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Badge } from '@/components/ui/badge'
+import { isLargeFileDiff } from '../utils/diffSize'
 import type { FileDiff as FileDiffType, ViewMode, DiffLine as DiffLineType, Comment } from '../types/diff'
+
+// Files whose diff exceeds this many rendered lines are deferred behind a click
+// to keep the UI responsive on huge (often generated) diffs.
+const LARGE_DIFF_THRESHOLD = 1500
 import DiffLine from './DiffLine'
 import CommentDisplay from './CommentDisplay'
 import { useRangeSelection } from '../hooks/useRangeSelection'
-import { intralineRanges } from '../utils/wordDiff'
+import { intralineRanges, type Range } from '../utils/wordDiff'
+import { isImagePath } from '../utils/imageFile'
+import BinaryImagePreview from './BinaryImagePreview'
 import { IconChevronRight, IconChevronDown } from './icons'
 import StatusBadge from './StatusBadge'
 
@@ -62,11 +70,26 @@ export default function FileDiff({
     getCommentRangeLines ? getCommentRangeLines(file.path, lineOrder) : new Set<number>()
   , [getCommentRangeLines, file.path, lineOrder])
 
+  // Total rendered lines across all hunks. Very large file diffs are deferred
+  // behind a click so they don't freeze the UI (thousands of Prism-highlighted
+  // rows + per-line word-diff). Mirrors GitHub's "large diffs not rendered".
+  const totalLines = useMemo(
+    () => file.hunks.reduce((n, hunk) => n + hunk.lines.length, 0),
+    [file.hunks]
+  )
+  const isLargeDiff = totalLines > LARGE_DIFF_THRESHOLD
+  const [showLargeDiff, setShowLargeDiff] = useState(false)
+  const renderDiffBody = !isLargeDiff || showLargeDiff
+
   // Word-level changed ranges, one map (line index → ranges) per hunk. Computed
   // once per file so the per-line arrays stay referentially stable for memo.
+  // Skipped for large diffs (the LCS per changed-line pair would be costly and
+  // intra-line highlighting matters least on huge mechanical diffs).
   const wordRanges = useMemo(
-    () => file.hunks.map(hunk => intralineRanges(hunk.lines)),
-    [file.hunks]
+    () => isLargeDiff
+      ? file.hunks.map(() => new Map<number, Range[]>())
+      : file.hunks.map(hunk => intralineRanges(hunk.lines)),
+    [file.hunks, isLargeDiff]
   )
 
   const handleSelect = useCallback((line: number, lineEnd: number) => {
@@ -82,9 +105,10 @@ export default function FileDiff({
 
   return (
     <div id={`file-${file.path.replace(/\//g, '-')}`} className="border border-[#d1d5da] dark:border-[#30363d] rounded-md mb-4">
-      {/* File Header */}
+      {/* File Header — sticks to the top of the scroll area so the file name and
+          actions stay visible while scrolling a long diff (GitHub PR style). */}
       <div
-        className="bg-[#f6f8fa] dark:bg-[#161b22] px-4 py-[10px] border-b border-[#d1d5da] dark:border-[#30363d] flex items-center justify-between gap-2 cursor-pointer select-none"
+        className="sticky top-0 z-10 rounded-t-md bg-[#f6f8fa] dark:bg-[#161b22] px-4 py-[10px] border-b border-[#d1d5da] dark:border-[#30363d] flex items-center justify-between gap-2 cursor-pointer select-none"
         onClick={onToggleCollapse}
       >
         <div className="flex items-center gap-1 flex-1 min-w-0">
@@ -116,6 +140,15 @@ export default function FileDiff({
 
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-sm">
+            {isLargeFileDiff(file) && (
+              <Badge
+                variant="secondary"
+                className="px-1.5 py-0.5 text-[10px] uppercase tracking-wide"
+                title={collapsed ? 'Large file — collapsed by default; click to expand' : 'Large file'}
+              >
+                Large
+              </Badge>
+            )}
             <span className="text-[#1a7f37] dark:text-[#2ea043]">+{file.additions}</span>
             <span className="text-[#cf222e] dark:text-[#f85149]">-{file.deletions}</span>
           </div>
@@ -148,12 +181,33 @@ export default function FileDiff({
       </div>
 
       {/* Diff Content */}
-      {!collapsed && file.isBinary && (
+      {!collapsed && file.isBinary && isImagePath(file.path) && (
+        <BinaryImagePreview file={file} />
+      )}
+      {!collapsed && file.isBinary && !isImagePath(file.path) && (
         <div className="px-4 py-3 text-sm text-[#586069] dark:text-[#8b949e] italic">
           Binary file — content not shown.
         </div>
       )}
-      {!collapsed && !file.isBinary && (
+      {/* A pure rename or a mode-only change has no hunks; say so instead of
+          rendering an empty body. */}
+      {!collapsed && !file.isBinary && file.hunks.length === 0 && (
+        <div className="px-4 py-3 text-sm text-[#586069] dark:text-[#8b949e] italic">
+          No content changes{file.status === 'renamed' ? ' (renamed)' : ''}.
+        </div>
+      )}
+      {/* Large diff: defer rendering behind a click. */}
+      {!collapsed && !file.isBinary && file.hunks.length > 0 && !renderDiffBody && (
+        <div className="px-4 py-6 flex flex-col items-center gap-2 text-center">
+          <p className="text-sm text-[#586069] dark:text-[#8b949e]">
+            Large diff — {totalLines} lines. Not rendered by default to keep the page responsive.
+          </p>
+          <Button variant="outline" size="sm" onClick={() => { setShowLargeDiff(true); }}>
+            Show diff anyway
+          </Button>
+        </div>
+      )}
+      {!collapsed && !file.isBinary && file.hunks.length > 0 && renderDiffBody && (
         <div className="overflow-x-auto">
           {viewMode === 'unified' ? (
             <table className="diff-table w-full">
@@ -288,69 +342,54 @@ function renderSplitView(lines: DiffLineType[], renderLine: (line: DiffLineType,
       }
       i++
     } else if (line.type === 'delete' || line.type === 'deleted') {
-      // Check if next line is an add (change)
-      const nextLine = i + 1 < lines.length ? lines[i + 1] : undefined
-      if (nextLine?.type === 'add' || nextLine?.type === 'added') {
-        // Changed line
-        const deleteResult = renderLine(line, i)
-        const addResult = renderLine(nextLine, i + 1)
-        rows.push(
-          <tr key={i} className="group">
-            {deleteResult.line}
-            {addResult.line}
-          </tr>
-        )
-        // Add comment rows for both sides if needed
-        if (deleteResult.comments.length > 0 || addResult.comments.length > 0) {
-          rows.push(
-            <tr key={`${String(i)}-comment`}>
-              <td colSpan={2} className="p-0">
-                {deleteResult.comments.length > 0 && (
-                  <CommentDisplay
-                    comments={deleteResult.comments}
-                    onDelete={onDeleteComment}
-                    onUpdate={onUpdateComment}
-                  />
-                )}
-              </td>
-              <td colSpan={2} className="p-0">
-                {addResult.comments.length > 0 && (
-                  <CommentDisplay
-                    comments={addResult.comments}
-                    onDelete={onDeleteComment}
-                    onUpdate={onUpdateComment}
-                  />
-                )}
-              </td>
-            </tr>
-          )
-        }
-        i += 2
-      } else {
-        // Deleted line only
-        const result = renderLine(line, i)
-        rows.push(
-          <tr key={i} className="group">
-            {result.line}
-            <td colSpan={2} className="bg-gray-50 dark:bg-gray-900/50"></td>
-          </tr>
-        )
-        // Add comment row if there are comments
-        if (result.comments.length > 0) {
-          rows.push(
-            <tr key={`${String(i)}-comment`}>
-              <td colSpan={2} className="p-0">
-                <CommentDisplay
-                  comments={result.comments}
-                  onDelete={onDeleteComment}
-                  onUpdate={onUpdateComment}
-                />
-              </td>
-              <td colSpan={2} className="bg-gray-50 dark:bg-gray-900/50"></td>
-            </tr>
-          )
-        }
+      // Collect the contiguous block of deletions followed by the contiguous
+      // block of additions, then lay them out side-by-side index-for-index
+      // (del[k] | add[k]) like GitHub — not just the boundary pair. Leftover
+      // lines on either side get an empty cell opposite them.
+      const delIdx: number[] = []
+      while (i < lines.length && (lines[i].type === 'delete' || lines[i].type === 'deleted')) {
+        delIdx.push(i)
         i++
+      }
+      const addIdx: number[] = []
+      while (i < lines.length && (lines[i].type === 'add' || lines[i].type === 'added')) {
+        addIdx.push(i)
+        i++
+      }
+
+      const emptyCell = <td colSpan={2} className="bg-gray-50 dark:bg-gray-900/50"></td>
+      const pairCount = Math.max(delIdx.length, addIdx.length)
+      for (let k = 0; k < pairCount; k++) {
+        const di = k < delIdx.length ? delIdx[k] : undefined
+        const ai = k < addIdx.length ? addIdx[k] : undefined
+        const delResult = di !== undefined ? renderLine(lines[di], di) : null
+        const addResult = ai !== undefined ? renderLine(lines[ai], ai) : null
+
+        rows.push(
+          <tr key={`pair-${String(di ?? 'x')}-${String(ai ?? 'x')}`} className="group">
+            {delResult ? delResult.line : emptyCell}
+            {addResult ? addResult.line : emptyCell}
+          </tr>
+        )
+
+        const delComments = delResult?.comments ?? []
+        const addComments = addResult?.comments ?? []
+        if (delComments.length > 0 || addComments.length > 0) {
+          rows.push(
+            <tr key={`pair-${String(di ?? 'x')}-${String(ai ?? 'x')}-comment`}>
+              <td colSpan={2} className="p-0">
+                {delComments.length > 0 && (
+                  <CommentDisplay comments={delComments} onDelete={onDeleteComment} onUpdate={onUpdateComment} />
+                )}
+              </td>
+              <td colSpan={2} className="p-0">
+                {addComments.length > 0 && (
+                  <CommentDisplay comments={addComments} onDelete={onDeleteComment} onUpdate={onUpdateComment} />
+                )}
+              </td>
+            </tr>
+          )
+        }
       }
     } else {
       // Added line only (not part of a change)

@@ -90,6 +90,27 @@
   --radius-sm: calc(var(--radius) - 4px);
 }
 
+/* Shared app content width. Caps the line length at a comfortable reading
+   width on laptops, but lets the diff use the extra room on large and
+   ultra-wide monitors instead of stranding it in the margins. */
+.app-container {
+  width: 100%;
+  margin-inline: auto;
+  max-width: 1280px;
+}
+
+@media (min-width: 1536px) {
+  .app-container {
+    max-width: 1600px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .app-container {
+    max-width: 1840px;
+  }
+}
+
 /* Base styles */
 * {
   box-sizing: border-box;
