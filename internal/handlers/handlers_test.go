@@ -3,6 +3,8 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -49,6 +51,52 @@ func chdirTestRepo(t *testing.T) {
 func newTestHandler() *Handler {
 	gs := git.NewService()
 	return NewHandler(gs, review.NewStore())
+}
+
+var errClientClosed = errors.New("write: broken pipe")
+
+type failingResponseWriter struct {
+	header      http.Header
+	statusCodes []int
+}
+
+func newFailingResponseWriter() *failingResponseWriter {
+	return &failingResponseWriter{header: make(http.Header)}
+}
+
+func (w *failingResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *failingResponseWriter) WriteHeader(statusCode int) {
+	w.statusCodes = append(w.statusCodes, statusCode)
+}
+
+func (w *failingResponseWriter) Write(_ []byte) (int, error) {
+	if len(w.statusCodes) == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return 0, errClientClosed
+}
+
+func TestWriteJSON_WriteFailureDoesNotRewriteCommittedResponse(t *testing.T) {
+	h := newTestHandler()
+	w := newFailingResponseWriter()
+	var logOutput bytes.Buffer
+	log.SetOutput(&logOutput)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	h.writeJSON(w, map[string]string{"status": "ok"})
+
+	if len(w.statusCodes) != 1 {
+		t.Fatalf("WriteHeader calls = %v, want a single committed response", w.statusCodes)
+	}
+	if w.statusCodes[0] != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.statusCodes[0], http.StatusOK)
+	}
+	if strings.Contains(logOutput.String(), "broken pipe") {
+		t.Fatalf("log output = %q, want client disconnect to stay quiet", logOutput.String())
+	}
 }
 
 func TestAddComment_RoundTrip(t *testing.T) {

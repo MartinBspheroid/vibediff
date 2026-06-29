@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
@@ -83,11 +84,29 @@ func (h *Handler) SetFormat(format string) {
 
 // writeJSON is a helper method to reduce repetitive JSON response code
 func (h *Handler) writeJSON(w http.ResponseWriter, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("encode response: %v", err)
+	payload, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("marshal response: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	payload = append(payload, '\n')
+	if _, err := w.Write(payload); err != nil && shouldLogResponseWriteError(err) {
+		log.Printf("write response: %v", err)
+	}
+}
+
+func shouldLogResponseWriteError(err error) bool {
+	if os.Getenv("VIBEDIFF_DEBUG") == "true" {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	return !strings.Contains(msg, "broken pipe") &&
+		!strings.Contains(msg, "connection reset by peer") &&
+		!strings.Contains(msg, "client closed")
 }
 
 func (h *Handler) GetDiff(w http.ResponseWriter, r *http.Request) {
