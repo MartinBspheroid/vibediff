@@ -91,20 +91,22 @@ function buildTree(files: FileDiff[]): TreeNode {
 function indentClass(depth: number): string {
   const classes = [
     'pl-2',
-    'pl-7',
+    'pl-4',
+    'pl-6',
+    'pl-8',
+    'pl-10',
     'pl-12',
+    'pl-14',
     'pl-16',
     'pl-20',
     'pl-24',
-    'pl-28',
-    'pl-32',
   ] as const
 
   return classes[Math.min(depth, classes.length - 1)]
 }
 
 function itemClass(selected: boolean): string {
-  return `w-full text-left bg-transparent border border-transparent flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13px] break-all transition-colors
+  return `w-full min-w-0 text-left bg-transparent border border-transparent flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13px] overflow-hidden transition-colors
     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]
     ${selected
       ? 'bg-[#ddf4ff] text-[#0969da] border-[#54aeff]/45 dark:bg-[#1f6feb]/20 dark:text-[#79c0ff] dark:border-[#388bfd]/35'
@@ -139,7 +141,7 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
             aria-current={selectedFile?.path === node.file.path ? 'true' : undefined}
             className={`${itemClass(selectedFile?.path === node.file.path)} ${indentClass(depth)}`}
           >
-            <span className="flex-1 min-w-0">{node.name}</span>
+            <span className="flex-1 min-w-0 truncate" title={node.file.path}>{node.name}</span>
             <span className="flex items-center gap-1.5 text-xs flex-shrink-0">
               <CommentBadge count={commentCounts[node.file.path] ?? 0} />
               <span className="text-[#1a7f37] dark:text-[#2ea043]">+{node.file.additions}</span>
@@ -157,7 +159,7 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
               type="button"
               aria-expanded={!isCollapsed}
               aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} folder ${node.name}`}
-              className={`w-full text-left bg-transparent border border-transparent flex items-center pr-2 py-1 rounded-[3px] cursor-pointer select-none text-[#24292e] dark:text-[#c9d1d9] hover:bg-[rgba(0,0,0,0.05)] dark:hover:bg-[rgba(255,255,255,0.05)]
+              className={`w-full min-w-0 text-left bg-transparent border border-transparent flex items-center pr-2 py-1 rounded-[3px] cursor-pointer select-none text-[#24292e] dark:text-[#c9d1d9] hover:bg-[rgba(0,0,0,0.05)] dark:hover:bg-[rgba(255,255,255,0.05)]
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0366d6] dark:focus-visible:ring-[#1f6feb]
                 ${indentClass(depth)}`}
               onClick={() => {
@@ -169,7 +171,7 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
                   ? <IconChevronRight aria-hidden="true" className="w-3 h-3" />
                   : <IconChevronDown aria-hidden="true" className="w-3 h-3" />}
               </span>
-              <span className="font-medium text-sm">{node.name}</span>
+              <span className="min-w-0 truncate font-medium text-sm" title={node.path}>{node.name}</span>
             </button>
             {!isCollapsed && node.children.map(child => renderTreeNode(child, depth + 1))}
           </div>
@@ -196,7 +198,7 @@ export default function FileList({ files, selectedFile, onSelectFile, displayMod
           aria-current={selectedFile?.path === file.path ? 'true' : undefined}
           className={itemClass(selectedFile?.path === file.path)}
         >
-          <span className="flex-1 min-w-0">{file.path}</span>
+          <span className="flex-1 min-w-0 truncate" title={file.path}>{file.path}</span>
           <span className="flex items-center gap-1.5 text-xs flex-shrink-0">
             <CommentBadge count={commentCounts[file.path] ?? 0} />
             <span className="text-[#1a7f37] dark:text-[#2ea043]">+{file.additions}</span>
